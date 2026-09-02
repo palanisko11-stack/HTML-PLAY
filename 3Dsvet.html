@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<title>Nekonečný 3D Svet - Extrémny Dohľad</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#000;font-family:'Segoe UI',sans-serif}
+canvas{display:block}
+#ui{position:fixed;top:20px;left:20px;z-index:100;color:#fff;pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+#ui h1{font-size:22px;font-weight:200;letter-spacing:6px;text-transform:uppercase}
+#ui p{font-size:11px;opacity:.7;letter-spacing:2px;margin-top:4px}
+#hud{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:100;color:#fff;background:rgba(0,0,0,.35);backdrop-filter:blur(12px);padding:10px 22px;border-radius:30px;font-size:11px;letter-spacing:1.5px;border:1px solid rgba(255,255,255,.1)}
+#stats{position:fixed;top:20px;right:20px;z-index:100;color:#fff;font-size:11px;opacity:.85;text-align:right;letter-spacing:1px;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+#stats div{margin-bottom:3px}
+#crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.6);z-index:50;box-shadow:0 0 8px rgba(255,255,255,.4)}
+#loading{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:1000;transition:opacity 1.2s ease}
+#loading h2{color:#fff;font-weight:200;letter-spacing:10px;text-transform:uppercase;font-size:20px}
+#loading .sub{color:#888;font-size:11px;letter-spacing:3px;margin-top:8px}
+#loading .bar{width:240px;height:1px;background:rgba(255,255,255,.15);margin-top:30px;overflow:hidden}
+#loading .bar-fill{height:100%;background:linear-gradient(90deg,#4facfe,#00f2fe);width:0%;transition:width .3s}
+#compass{position:fixed;bottom:20px;right:20px;width:70px;height:70px;border-radius:50%;border:1px solid rgba(255,255,255,.2);z-index:100;background:rgba(0,0,0,.3);backdrop-filter:blur(8px)}
+#compass canvas{width:100%;height:100%}
+
+#weather-hud{
+  position:fixed;top:90px;right:20px;z-index:100;color:#fff;
+  font-size:11px;letter-spacing:1.5px;text-align:right;
+  text-shadow:0 2px 8px rgba(0,0,0,.6);
+}
+#weather-hud .row{margin-bottom:6px;display:flex;justify-content:flex-end;align-items:center;gap:8px}
+#weather-hud .icon{font-size:16px}
+#weather-hud .label{opacity:.6;font-size:9px;text-transform:uppercase}
+#weather-hud .value{font-size:13px;font-weight:300}
+
+#weather-overlay{
+  position:fixed;inset:0;pointer-events:none;z-index:40;
+  transition:background 2s ease;
+}
+#flash-overlay{
+  position:fixed;inset:0;pointer-events:none;z-index:45;
+  background:#fff;opacity:0;transition:opacity .05s;
+}
+
+#notification{
+  position:fixed;top:30%;left:50%;transform:translateX(-50%);
+  z-index:200;color:#fff;font-size:14px;letter-spacing:3px;
+  text-transform:uppercase;opacity:0;transition:opacity .5s;
+  text-shadow:0 2px 10px rgba(0,0,0,.8);pointer-events:none;
+}
+
+#info-panel{
+  position:fixed;bottom:70px;left:20px;z-index:100;color:#fff;
+  font-size:10px;letter-spacing:1.5px;opacity:.7;
+  text-shadow:0 2px 8px rgba(0,0,0,.6);
+}
+#info-panel .key{display:inline-block;padding:2px 6px;background:rgba(255,255,255,.15);border-radius:3px;margin:0 2px;font-family:monospace}
+
+#view-distance{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%);
+  z-index:100;color:#fff;font-size:12px;letter-spacing:2px;
+  text-shadow:0 2px 8px rgba(0,0,0,.6);
+  background:rgba(0,0,0,.3);padding:8px 16px;border-radius:20px;
+  backdrop-filter:blur(8px);
+}
+</style>
+</head>
+<body>
+<div id="loading">
+  <h2>NEKONEČNÝ SVET</h2>
+  <div class="sub">Generujem procedurálny terén...</div>
+  <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+</div>
+<div id="ui">
+  <h1>∞ Nekonečný Svet</h1>
+  <p>Procedurálny · Realistický · Extrémny Dohľad</p>
+</div>
+<div id="stats">
+  <div id="fps">60 FPS</div>
+  <div id="pos">X:0 Y:0 Z:0</div>
+  <div id="biome">BIOME: LES</div>
+  <div id="chunks">CHUNKY: 0</div>
+</div>
+
+<div id="view-distance">DOHĽAD: 2500m</div>
+
+<div id="weather-hud">
+  <div class="row"><span class="icon" id="time-icon">☀</span><span class="value" id="time-value">12:00</span></div>
+  <div class="row"><span class="label">TEPLOTA</span><span class="value" id="temp-value">18°C</span></div>
+  <div class="row"><span class="label">POČASIE</span><span class="value" id="weather-value">JASNO</span></div>
+  <div class="row"><span class="label">VETER</span><span class="value" id="wind-value">5 m/s</span></div>
+</div>
+
+<div id="hud">WASD pohyb · Myš rozhliadanie · SHIFT beh · MEDZERNÍK lietanie · <span style="color:#ffcc66">T</span> počasie · <span style="color:#ffcc66">N</span> deň/noc · <span style="color:#ffcc66">M</span> zvuk</div>
+<div id="crosshair"></div>
+<div id="compass"><canvas id="compass-canvas" width="140" height="140"></canvas></div>
+<div id="weather-overlay"></div>
+<div id="flash-overlay"></div>
+<div id="notification"></div>
+<div id="info-panel">
+  <div><span class="key">T</span> prepne počasie</div>
+  <div><span class="key">N</span> zrýchli čas</div>
+  <div><span class="key">M</span> zapne/vypne zvuk</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+// ============ NOISE ============
+const perm = new Uint8Array(512);
+const grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+(function initNoise(){
+  const p = [];
+  for(let i=0;i<256;i++) p[i]=i;
+  let seed = 42;
+  for(let i=255;i>0;i--){
+    seed = (seed * 9301 + 49297) % 233280;
+    const j = Math.floor((seed/233280) * (i+1));
+    [p[i],p[j]] = [p[j],p[i]];
+  }
+  for(let i=0;i<512;i++) perm[i] = p[i&255];
+})();
+
+function fade(t){return t*t*t*(t*(t*6-15)+10)}
+function lerp(a,b,t){return a+(b-a)*t}
+function grad(hash,x,y){const g=grad3[hash%12];return g[0]*x+g[1]*y}
+
+function perlin2(x,y){
+  const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+  x-=Math.floor(x); y-=Math.floor(y);
+  const u=fade(x), v=fade(y);
+  const A=perm[X]+Y, B=perm[X+1]+Y;
+  return lerp(lerp(grad(perm[A],x,y),grad(perm[B],x-1,y),u),
+              lerp(grad(perm[A+1],x,y-1),grad(perm[B+1],x-1,y-1),u),v);
+}
+
+function fbm(x,y,octaves=6,lacunarity=2,gain=0.5){
+  let sum=0, amp=1, freq=1, norm=0;
+  for(let i=0;i<octaves;i++){
+    sum += perlin2(x*freq,y*freq)*amp;
+    norm += amp;
+    amp *= gain;
+    freq *= lacunarity;
+  }
+  return sum/norm;
+}
+
+function ridged(x,y,octaves=5){
+  let sum=0, amp=1, freq=1, prev=1;
+  for(let i=0;i<octaves;i++){
+    let n = Math.abs(perlin2(x*freq,y*freq));
+    n = 1-n;
+    n = n*n;
+    sum += n*amp*prev;
+    prev = n;
+    amp *= 0.5;
+    freq *= 2.1;
+  }
+  return sum;
+}
+
+function warpedNoise(x,y){
+  const qx = fbm(x+0.0,y+1.7,4);
+  const qy = fbm(x+5.2,y+1.3,4);
+  return fbm(x+qx*4,y+qy*4,5);
+}
+
+function getHeight(x,z){
+  const continent = fbm(x*0.0008,z*0.0008,4);
+  const base = fbm(x*0.003,z*0.003,6,2,0.5);
+  const mountains = ridged(x*0.0025+10,z*0.0025+10,5);
+  const detail = fbm(x*0.02,z*0.02,3)*0.3;
+  const warp = warpedNoise(x*0.001,z*0.001);
+  let h = base*25 + mountains*40 + detail*3 + warp*15;
+  h += continent*30;
+  if(h < 2 && h > -2) h = h*0.5;
+  return h;
+}
+
+function getBiome(x,z,h){
+  const moisture = (fbm(x*0.0015+100,z*0.0015+100,4)+1)*0.5;
+  const temp = (fbm(x*0.0012+200,z*0.0012+200,4)+1)*0.5;
+  if(h < -1) return 'water';
+  if(h < 1.5) return 'beach';
+  if(h > 35) return 'snow';
+  if(h > 25) return 'rock';
+  if(moisture > 0.55 && temp > 0.4) return 'forest';
+  if(moisture < 0.3) return 'desert';
+  if(temp < 0.35) return 'tundra';
+  return 'plains';
+}
+
+// ============ TIME & WEATHER SYSTEM ============
+const timeSystem = {
+  timeOfDay: 0.35,
+  timeSpeed: 1/600,
+  dayDuration: 600,
+  weatherState: 'clear',
+  weatherTimer: 0,
+  weatherDuration: 120,
+  windStrength: 0.3,
+  windDir: new THREE.Vector3(1,0,0.5).normalize(),
+  temperature: 18,
+  timeMultiplier: 1,
+  weatherStates: ['clear','clear','cloudy','rain','storm','snow'],
+  weatherIndex: 0,
+  
+  getSunPosition(){
+    const angle = this.timeOfDay * Math.PI * 2 - Math.PI/2;
+    return new THREE.Vector3(
+      Math.cos(angle) * 400,
+      Math.sin(angle) * 400,
+      100
+    );
+  },
+  
+  getSunIntensity(){
+    const sunY = this.getSunPosition().y;
+    if(sunY < 0) return 0;
+    return Math.pow(Math.max(0, sunY/400), 0.6);
+  },
+  
+  isNight(){
+    return this.getSunPosition().y < -50;
+  },
+  
+  getSkyColors(){
+    const sunY = this.getSunPosition().y;
+    const t = Math.max(0, Math.min(1, (sunY + 100) / 500));
+    
+    const nightTop = new THREE.Color(0x020510);
+    const nightBottom = new THREE.Color(0x0a1025);
+    const dayTop = new THREE.Color(0x1a6fcc);
+    const dayBottom = new THREE.Color(0xb4d4ee);
+    const sunsetTop = new THREE.Color(0x4a3a6a);
+    const sunsetBottom = new THREE.Color(0xff8844);
+    
+    let top, bottom;
+    if(sunY > 50){
+      top = dayTop.clone();
+      bottom = dayBottom.clone();
+    } else if(sunY > -20){
+      const st = (sunY + 20) / 70;
+      top = nightTop.clone().lerp(sunsetTop, st);
+      bottom = nightBottom.clone().lerp(sunsetBottom, st);
+      if(st > 0.5){
+        const dt = (st - 0.5) * 2;
+        top.lerp(dayTop, dt);
+        bottom.lerp(dayBottom, dt);
+      }
+    } else {
+      top = nightTop.clone();
+      bottom = nightBottom.clone();
+    }
+    
+    if(this.weatherState === 'cloudy' || this.weatherState === 'rain'){
+      top.lerp(new THREE.Color(0x4a5566), 0.6);
+      bottom.lerp(new THREE.Color(0x6a7585), 0.5);
+    } else if(this.weatherState === 'storm'){
+      top.lerp(new THREE.Color(0x2a3040), 0.8);
+      bottom.lerp(new THREE.Color(0x3a4555), 0.7);
+    } else if(this.weatherState === 'snow'){
+      top.lerp(new THREE.Color(0x8a95a5), 0.5);
+      bottom.lerp(new THREE.Color(0xb5c0d0), 0.4);
+    }
+    
+    return {top, bottom};
+  },
+  
+  getFogColor(){
+    const {bottom} = this.getSkyColors();
+    return bottom.clone();
+  },
+  
+  updateWeather(dt){
+    this.weatherTimer += dt;
+    if(this.weatherTimer > this.weatherDuration){
+      this.weatherTimer = 0;
+      this.weatherDuration = 60 + Math.random() * 180;
+      this.weatherIndex = (this.weatherIndex + 1) % this.weatherStates.length;
+      this.weatherState = this.weatherStates[this.weatherIndex];
+      this.windStrength = 0.2 + Math.random() * 0.8;
+      this.windDir.set(Math.random()-0.5, 0, Math.random()-0.5).normalize();
+      showNotification(this.getWeatherName());
+    }
+  },
+  
+  cycleWeather(){
+    this.weatherIndex = (this.weatherIndex + 1) % this.weatherStates.length;
+    this.weatherState = this.weatherStates[this.weatherIndex];
+    this.weatherTimer = 0;
+    showNotification(this.getWeatherName());
+  },
+  
+  getWeatherName(){
+    const names = {clear:'JASNO',cloudy:'ZAMRAČENÉ',rain:'DÁŽĎ',storm:'BÚRKA',snow:'SNEH'};
+    return names[this.weatherState] || 'JASNO';
+  },
+  
+  getTemperature(){
+    const sunIntensity = this.getSunIntensity();
+    let base = 10 + sunIntensity * 15;
+    const biome = getBiome(camera.position.x, camera.position.z, camera.position.y);
+    if(biome === 'desert') base += 15;
+    if(biome === 'snow' || biome === 'tundra') base -= 15;
+    if(biome === 'rock') base -= 5;
+    if(this.weatherState === 'rain') base -= 3;
+    if(this.weatherState === 'snow') base -= 10;
+    if(this.isNight()) base -= 5;
+    return Math.round(base);
+  }
+};
+
+// ============ SCENE SETUP ============
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.5, 5000);
+const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// ============ STARS ============
+const starsGeo = new THREE.BufferGeometry();
+const starPositions = [];
+const starSizes = [];
+for(let i=0;i<3000;i++){
+  const r = 2500;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(Math.random() * 2 - 1);
+  if(phi > Math.PI/2) continue;
+  starPositions.push(
+    r * Math.sin(phi) * Math.cos(theta),
+    r * Math.cos(phi),
+    r * Math.sin(phi) * Math.sin(theta)
+  );
+  starSizes.push(0.5 + Math.random() * 2.5);
+}
+starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+starsGeo.setAttribute('size', new THREE.Float32BufferAttribute(starSizes, 1));
+
+const starsMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  uniforms: {
+    opacity: {value: 0},
+    time: {value: 0}
+  },
+  vertexShader:`
+    attribute float size;
+    varying float vSize;
+    uniform float time;
+    void main(){
+      vSize = size;
+      vec4 mvPos = modelViewMatrix * vec4(position,1.0);
+      gl_PointSize = size * (300.0 / -mvPos.z);
+      gl_Position = projectionMatrix * mvPos;
+    }`,
+  fragmentShader:`
+    uniform float opacity;
+    uniform float time;
+    varying float vSize;
+    void main(){
+      vec2 c = gl_PointCoord - 0.5;
+      float d = length(c);
+      if(d > 0.5) discard;
+      float alpha = (1.0 - d*2.0) * opacity;
+      float twinkle = 0.7 + 0.3 * sin(time*2.0 + vSize*10.0);
+      gl_FragColor = vec4(1.0, 0.98, 0.9, alpha * twinkle);
+    }`
+});
+const stars = new THREE.Points(starsGeo, starsMat);
+scene.add(stars);
+
+// ============ MOON ============
+const moonGeo = new THREE.SphereGeometry(30, 24, 24);
+const moonMat = new THREE.MeshBasicMaterial({color: 0xeeeeff});
+const moon = new THREE.Mesh(moonGeo, moonMat);
+scene.add(moon);
+
+const moonGlowGeo = new THREE.SphereGeometry(45, 16, 16);
+const moonGlowMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  side: THREE.BackSide,
+  uniforms: {opacity: {value: 0.3}},
+  vertexShader:`varying vec3 vNormal;void main(){vNormal=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`uniform float opacity;varying vec3 vNormal;void main(){float i=pow(0.7-dot(vNormal,vec3(0,0,1)),2.0);gl_FragColor=vec4(0.8,0.85,1.0,i*opacity);}`
+});
+const moonGlow = new THREE.Mesh(moonGlowGeo, moonGlowMat);
+moon.add(moonGlow);
+
+// ============ SKY SHADER ============
+const skyGeo = new THREE.SphereGeometry(3000,32,32);
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: {
+    topColor: {value: new THREE.Color(0x1a6fcc)},
+    bottomColor: {value: new THREE.Color(0xb4d4ee)},
+    sunPos: {value: new THREE.Vector3(0,100,0)},
+    sunIntensity: {value: 1}
+  },
+  vertexShader:`
+    varying vec3 vWorldPosition;
+    void main(){
+      vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = worldPosition.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader:`
+    uniform vec3 topColor;
+    uniform vec3 bottomColor;
+    uniform vec3 sunPos;
+    uniform float sunIntensity;
+    varying vec3 vWorldPosition;
+    void main(){
+      vec3 dir = normalize(vWorldPosition);
+      float h = normalize(vWorldPosition).y;
+      float t = max(0.0, min(1.0, (h + 0.1) / 1.1));
+      vec3 sky = mix(bottomColor, topColor, pow(t, 0.7));
+      
+      // Sun glow
+      vec3 sunDir = normalize(sunPos);
+      float sunDot = max(0.0, dot(dir, sunDir));
+      float sunGlow = pow(sunDot, 16.0) * 0.6 * sunIntensity;
+      float sunDisk = step(0.999, sunDot) * sunIntensity;
+      
+      sky += vec3(1.0, 0.9, 0.7) * sunGlow + vec3(1.0, 1.0, 0.9) * sunDisk;
+      gl_FragColor = vec4(sky, 1.0);
+    }`
+});
+const skyDome = new THREE.Mesh(skyGeo, skyMat);
+scene.add(skyDome);
+
+// ============ FOG & LIGHTS ============
+scene.fog = new THREE.FogExp2(0xb4d4ee, 0.00035);
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 10;
+sunLight.shadow.camera.far = 1200;
+const d = 400;
+sunLight.shadow.camera.left = -d;
+sunLight.shadow.camera.right = d;
+sunLight.shadow.camera.top = d;
+sunLight.shadow.camera.bottom = -d;
+sunLight.shadow.bias = -0.0005;
+scene.add(sunLight);
+
+// ============ WATER ============
+const waterGeo = new THREE.PlaneGeometry(10000, 10000, 64, 64);
+const waterMat = new THREE.MeshStandardMaterial({
+  color: 0x114466,
+  roughness: 0.1,
+  metalness: 0.8,
+  transparent: true,
+  opacity: 0.85
+});
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.rotation.x = -Math.PI/2;
+water.position.y = -0.5;
+scene.add(water);
+
+// ============ POSTPROCESSING ============
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.35, 0.4, 0.85);
+composer.addPass(bloomPass);
+
+// ============ PARTICLE SYSTEMS (Rain, Snow, Fireflies) ============
+const rainGeo = new THREE.BufferGeometry();
+const rainCount = 3000;
+const rainPositions = new Float32Array(rainCount * 3);
+for(let i=0; i<rainCount*3; i+=3){
+  rainPositions[i] = (Math.random()-0.5)*400;
+  rainPositions[i+1] = Math.random()*200;
+  rainPositions[i+2] = (Math.random()-0.5)*400;
+}
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+const rainMat = new THREE.PointsMaterial({color:0x88bbff, size:1.2, transparent:true, opacity:0.6});
+const rainSystem = new THREE.Points(rainGeo, rainMat);
+rainSystem.visible = false;
+scene.add(rainSystem);
+
+const snowGeo = new THREE.BufferGeometry();
+const snowCount = 2000;
+const snowPositions = new Float32Array(snowCount * 3);
+for(let i=0; i<snowCount*3; i+=3){
+  snowPositions[i] = (Math.random()-0.5)*300;
+  snowPositions[i+1] = Math.random()*200;
+  snowPositions[i+2] = (Math.random()-0.5)*300;
+}
+snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+const snowMat = new THREE.PointsMaterial({color:0xffffff, size:2.0, transparent:true, opacity:0.8});
+const snowSystem = new THREE.Points(snowGeo, snowMat);
+snowSystem.visible = false;
+scene.add(snowSystem);
+
+// ============ PROCEDURAL CHUNK SYSTEM ============
+const CHUNK_SIZE = 64;
+const CHUNK_RES = 32;
+const VIEW_DISTANCE = 40; // Ultra high view distance (chunks radius)
+const chunks = new Map();
+const materialCache = new Map();
+
+// Helper to create biome terrain material
+function getChunkMaterial(biome){
+  if(materialCache.has(biome)) return materialCache.get(biome);
+  
+  let col = 0x335c33;
+  let rough = 0.8;
+  if(biome === 'beach') { col = 0xd2b48c; rough = 0.9; }
+  else if(biome === 'desert') { col = 0xe3bb76; rough = 0.85; }
+  else if(biome === 'rock') { col = 0x6e6e6e; rough = 0.6; }
+  else if(biome === 'snow') { col = 0xf0f0f5; rough = 0.4; }
+  else if(biome === 'tundra') { col = 0x8a9a86; rough = 0.8; }
+  else if(biome === 'forest') { col = 0x2e5c2e; rough = 0.85; }
+  
+  const mat = new THREE.MeshStandardMaterial({
+    color: col,
+    roughness: rough,
+    metalness: 0.05,
+    flatShading: true
+  });
+  materialCache.set(biome, mat);
+  return mat;
+}
+
+function createChunk(cx, cz){
+  const key = `${cx},${cz}`;
+  if(chunks.has(key)) return;
+  
+  const geometry = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, CHUNK_RES, CHUNK_RES);
+  geometry.rotateX(-Math.PI/2);
+  
+  const pos = geometry.attributes.position;
+  let sampleBiome = 'plains';
+  
+  for(let i=0; i<pos.count; i++){
+    const wx = pos.getX(i) + cx * CHUNK_SIZE;
+    const wz = pos.getZ(i) + cz * CHUNK_SIZE;
+    const wy = getHeight(wx, wz);
+    pos.setY(i, wy);
+    if(i === 0) sampleBiome = getBiome(wx, wz, wy);
+  }
+  geometry.computeVertexNormals();
+  
+  const mat = getChunkMaterial(sampleBiome);
+  const mesh = new THREE.Mesh(geometry, mat);
+  mesh.position.set(cx * CHUNK_SIZE + CHUNK_SIZE/2, 0, cz * CHUNK_SIZE + CHUNK_SIZE/2);
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  
+  scene.add(mesh);
+  chunks.set(key, {mesh, cx, cz, biome: sampleBiome});
+}
+
+// ============ AUDIO SYSTEM (Procedural Synth/Ambient) ============
+let audioCtx = null;
+let audioGain = null;
+let isAudioEnabled = false;
+
+function initAudio(){
+  if(audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioGain = audioCtx.createGain();
+  audioGain.gain.value = 0.15;
+  audioGain.connect(audioCtx.destination);
+  
+  // Wind generator noise
+  const bufferSize = audioCtx.sampleRate * 2;
+  const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const output = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    output[i] = Math.random() * 2 - 1;
+  }
+  
+  const whiteNoise = audioCtx.createBufferSource();
+  whiteNoise.buffer = noiseBuffer;
+  whiteNoise.loop = true;
+  
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 300;
+  filter.Q.value = 3.0;
+  
+  whiteNoise.connect(filter);
+  filter.connect(audioGain);
+  whiteNoise.start();
+}
+
+function toggleAudio(){
+  if(!audioCtx) {
+    initAudio();
+    isAudioEnabled = true;
+    showNotification("ZVUK ZAPNUTÝ");
+  } else {
+    if(audioCtx.state === 'suspended'){
+      audioCtx.resume();
+      isAudioEnabled = true;
+      showNotification("ZVUK ZAPNUTÝ");
+    } else {
+      audioCtx.suspend();
+      isAudioEnabled = false;
+      showNotification("ZVUK VYPNUTÝ");
+    }
+  }
+}
+
+// ============ PLAYER & CONTROLS ============
+const player = {
+  pos: new THREE.Vector3(0, 50, 0),
+  vel: new THREE.Vector3(),
+  speed: 15,
+  runMult: 2.2,
+  fly: true,
+  pitch: 0,
+  yaw: 0
+};
+
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if(e.code === 'KeyT') timeSystem.cycleWeather();
+  if(e.code === 'KeyN') timeSystem.timeOfDay = (timeSystem.timeOfDay + 0.25) % 1;
+  if(e.code === 'KeyM') toggleAudio();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+let isPointerLocked = false;
+renderer.domElement.addEventListener('click', () => {
+  renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  isPointerLocked = document.pointerLockElement === renderer.domElement;
+});
+
+document.addEventListener('mousemove', e => {
+  if(!isPointerLocked) return;
+  const sens = 0.002;
+  player.yaw -= e.movementX * sens;
+  player.pitch -= e.movementY * sens;
+  player.pitch = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, player.pitch));
+});
+
+// Touch support for mobile
+let touchX = 0, touchY = 0, isTouching = false;
+window.addEventListener('touchstart', e => {
+  if(e.touches.length === 1){
+    isTouching = true;
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+  }
+});
+window.addEventListener('touchmove', e => {
+  if(!isTouching) return;
+  const dx = e.touches[0].clientX - touchX;
+  const dy = e.touches[0].clientY - touchY;
+  touchX = e.touches[0].clientX;
+  touchY = e.touches[0].clientY;
+  player.yaw -= dx * 0.003;
+  player.pitch -= dy * 0.003;
+  player.pitch = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, player.pitch));
+});
+window.addEventListener('touchend', () => { isTouching = false; });
+
+// ============ UI & NOTIFICATIONS ============
+const notificationEl = document.getElementById('notification');
+let notifTimeout = null;
+function showNotification(text){
+  notificationEl.innerText = text;
+  notificationEl.style.opacity = '1';
+  clearTimeout(notifTimeout);
+  notifTimeout = setTimeout(() => {
+    notificationEl.style.opacity = '0';
+  }, 2500);
+}
+
+// Compass canvas
+const compassCtx = document.getElementById('compass-canvas').getContext('2d');
+function drawCompass(){
+  compassCtx.clearRect(0,0,140,140);
+  compassCtx.save();
+  compassCtx.translate(70,70);
+  compassCtx.rotate(player.yaw);
+  
+  // North marker
+  compassCtx.fillStyle = '#ff4444';
+  compassCtx.beginPath();
+  compassCtx.moveTo(0, -50);
+  compassCtx.lineTo(-6, -35);
+  compassCtx.lineTo(6, -35);
+  compassCtx.fill();
+  
+  compassCtx.fillStyle = '#ffffff';
+  compassCtx.font = '10px Segoe UI';
+  compassCtx.textAlign = 'center';
+  compassCtx.fillText('S', 0, -55);
+  compassCtx.fillText('J', 0, 62);
+  compassCtx.fillText('V', 55, 4);
+  compassCtx.fillText('Z', -55, 4);
+  
+  compassCtx.restore();
+}
+
+// ============ LOADING & INIT ============
+let loadedChunksCount = 0;
+const totalInitialChunks = 9 * 9;
+
+function initialChunkLoad(){
+  const pcx = Math.floor(player.pos.x / CHUNK_SIZE);
+  const pcz = Math.floor(player.pos.z / CHUNK_SIZE);
+  
+  for(let x = -4; x <= 4; x++){
+    for(let z = -4; z <= 4; z++){
+      createChunk(pcx + x, pcz + z);
+    }
+  }
+  
+  // Snap camera height
+  const groundH = getHeight(player.pos.x, player.pos.z);
+  player.pos.y = Math.max(groundH + 5, 20);
+}
+
+initialChunkLoad();
+document.getElementById('loading').style.opacity = '0';
+setTimeout(() => document.getElementById('loading').remove(), 1200);
+
+// ============ ANIMATION LOOP ============
+const clock = new THREE.Clock();
+let frameCount = 0;
+let lastFpsUpdate = 0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const time = clock.getElapsedTime();
+  
+  // Time progression
+  timeSystem.timeOfDay += dt * timeSystem.timeSpeed * timeSystem.timeMultiplier;
+  if(timeSystem.timeOfDay > 1) timeSystem.timeOfDay = 0;
+  timeSystem.updateWeather(dt);
+  
+  // Update celestial objects
+  const sunPos = timeSystem.getSunPosition();
+  sunLight.position.copy(sunPos);
+  const sunIntensity = timeSystem.getSunIntensity();
+  sunLight.intensity = sunIntensity * 2.0;
+  
+  moon.position.copy(sunPos).negate();
+  moonGlowMat.uniforms.opacity.value = timeSystem.isNight() ? 0.5 : 0.0;
+  
+  const skyColors = timeSystem.getSkyColors();
+  skyMat.uniforms.topColor.value.copy(skyColors.top);
+  skyMat.uniforms.bottomColor.value.copy(skyColors.bottom);
+  skyMat.uniforms.sunPos.value.copy(sunPos);
+  skyMat.uniforms.sunIntensity.value = sunIntensity;
+  
+  scene.fog.color.copy(skyColors.bottom);
+  renderer.setClearColor(skyColors.bottom);
+  
+  starsMat.uniforms.opacity.value = timeSystem.isNight() ? 0.9 : 0.0;
+  starsMat.uniforms.time.value = time;
+  
+  // Weather systems animation
+  rainSystem.visible = (timeSystem.weatherState === 'rain' || timeSystem.weatherState === 'storm');
+  snowSystem.visible = (timeSystem.weatherState === 'snow');
+  
+  if(rainSystem.visible){
+    const pos = rainGeo.attributes.position;
+    for(let i=1; i<pos.count*3; i+=3){
+      let y = pos.getY(i/3);
+      y -= dt * 150;
+      if(y < 0) y = 200;
+      pos.setY(i/3, y);
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+    rainSystem.position.copy(camera.position);
+  }
+  
+  if(snowSystem.visible){
+    const pos = snowGeo.attributes.position;
+    for(let i=1; i<pos.count*3; i+=3){
+      let y = pos.getY(i/3);
+      y -= dt * 30;
+      if(y < 0) y = 200;
+      pos.setY(i/3, y);
+    }
+    snowGeo.attributes.position.needsUpdate = true;
+    snowSystem.position.copy(camera.position);
+  }
+  
+  // Player movement
+  const moveDir = new THREE.Vector3();
+  const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw)).normalize();
+  const right = new THREE.Vector3(Math.sin(player.yaw - Math.PI/2), 0, Math.cos(player.yaw - Math.PI/2)).normalize();
+  
+  if(keys['KeyW'] || keys['ArrowUp']) moveDir.add(forward);
+  if(keys['KeyS'] || keys['ArrowDown']) moveDir.sub(forward);
+  if(keys['KeyD'] || keys['ArrowRight']) moveDir.add(right);
+  if(keys['KeyA'] || keys['ArrowLeft']) moveDir.sub(right);
+  moveDir.normalize();
+  
+  let currentSpeed = player.speed;
+  if(keys['ShiftLeft'] || keys['ShiftRight']) currentSpeed *= player.runMult;
+  
+  player.pos.addScaledVector(moveDir, currentSpeed * dt);
+  
+  if(player.fly){
+    if(keys['Space']) player.pos.y += currentSpeed * dt;
+    if(keys['KeyC']) player.pos.y -= currentSpeed * dt;
+    const groundH = getHeight(player.pos.x, player.pos.z);
+    if(player.pos.y < groundH + 3) player.pos.y = groundH + 3;
+  }
+  
+  camera.position.copy(player.pos);
+  
+  const euler = new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ');
+  camera.quaternion.setFromEuler(euler);
+  
+  // Dynamic Chunk Loading / Unloading around player
+  const pcx = Math.floor(player.pos.x / CHUNK_SIZE);
+  const pcz = Math.floor(player.pos.z / CHUNK_SIZE);
+  
+  const loadRadius = 15; // 30x30 chunks active
+  for(let x = -loadRadius; x <= loadRadius; x++){
+    for(let z = -loadRadius; z <= loadRadius; z++){
+      if(x*x + z*z <= loadRadius*loadRadius){
+        createChunk(pcx + x, pcz + z);
+      }
+    }
+  }
+  
+  // Cleanup distant chunks
+  for(const [key, chunk] of chunks.entries()){
+    if(Math.abs(chunk.cx - pcx) > loadRadius + 2 || Math.abs(chunk.cz - pcz) > loadRadius + 2){
+      scene.remove(chunk.mesh);
+      chunk.mesh.geometry.dispose();
+      chunks.delete(key);
+    }
+  }
+  
+  composer.render();
+  drawCompass();
+  
+  // HUD Update
+  frameCount++;
+  if(time - lastFpsUpdate > 0.5){
+    document.getElementById('fps').innerText = `${Math.round(frameCount / (time - lastFpsUpdate))} FPS`;
+    document.getElementById('pos').innerText = `X:${Math.round(player.pos.x)} Y:${Math.round(player.pos.y)} Z:${Math.round(player.pos.z)}`;
+    document.getElementById('chunks').innerText = `CHUNKY: ${chunks.size}`;
+    
+    const currentBiome = getBiome(player.pos.x, player.pos.z, player.pos.y);
+    const biomeNames = {plains:'LÚKA',forest:'LES',desert:'PÚŠŤ',snow:'SNEH',rock:'SKALY',beach:'PLÁŽ',tundra:'TUNDRA',water:'VODA'};
+    document.getElementById('biome').innerText = `BIOME: ${biomeNames[currentBiome] || 'SVET'}`;
+    
+    // Weather HUD
+    const hours = Math.floor(timeSystem.timeOfDay * 24);
+    const minutes = Math.floor((timeSystem.timeOfDay * 24 - hours) * 60);
+    document.getElementById('time-value').innerText = `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}`;
+    document.getElementById('time-icon').innerText = timeSystem.isNight() ? '🌙' : '☀';
+    document.getElementById('temp-value').innerText = `${timeSystem.getTemperature()}°C`;
+    document.getElementById('weather-value').innerText = timeSystem.getWeatherName();
+    document.getElementById('wind-value').innerText = `${Math.round(timeSystem.windStrength * 10)} m/s`;
+    
+    frameCount = 0;
+    lastFpsUpdate = time;
+  }
+}
+
+// Window resizing
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+});
+
+// Start loop
+window.onload = function(){
+  animate();
+};
+
+</script>
+</body>
+</html>

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nástroj na vyřezávání a 3D vizualizaci</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        canvas, #webglContainer canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between p-4 md:p-6">
+
+    <header class="w-full max-w-6xl text-center mb-6">
+        <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
+            Vyřezávač objektů & Three.js 3D Svět
+        </h1>
+        <p class="text-slate-400 text-sm mt-1">Vyřízněte objekt pomocí polygonu a okamžitě jej převeďte do interaktivního 3D modelu.</p>
+    </header>
+
+    <main class="w-full max-w-6xl flex-1 flex flex-col lg:flex-row gap-6 bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 shadow-2xl">
+        
+        <!-- Left Panel: Controls & Upload -->
+        <div class="w-full lg:w-80 flex flex-col gap-4">
+            
+            <!-- Upload Box -->
+            <div class="flex flex-col gap-2">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">1. Nahrát fotku</label>
+                <label class="flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-xl cursor-pointer bg-slate-800/50 hover:bg-slate-800 transition text-center group">
+                    <svg class="w-7 h-7 text-slate-400 group-hover:text-blue-400 mb-2 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span class="text-sm font-medium text-slate-300">Vybrat soubor...</span>
+                    <input type="file" id="imageLoader" accept="image/*" class="hidden">
+                </label>
+            </div>
+
+            <!-- Polygon Instructions -->
+            <div class="flex flex-col gap-2 pt-2 border-t border-slate-800">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">2. Polygonový výřez</label>
+                <div class="p-3 bg-slate-800/50 border border-slate-700/80 rounded-xl text-xs text-slate-300 space-y-1.5">
+                    <p>• Kliknutím přidejte body na obrys objektu.</p>
+                    <p>• Kliknutím na první bod nebo tlačítko polygon uzavřete.</p>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex flex-col gap-2 pt-2 border-t border-slate-800 mt-auto">
+                <label class="text-xs font-semibold uppercase tracking-wider text-slate-400">3. Akce</label>
+                <button id="btnClosePoly" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled>Uzavřít polygon</button>
+                <button id="btnReset" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition border border-slate-700">Resetovat body</button>
+                <button id="btnSendTo3D" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium transition shadow-lg shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed" disabled>Odeslat do 3D světa</button>
+            </div>
+
+        </div>
+
+        <!-- Right Panel: Tabs for 2D Cutting & 3D View -->
+        <div class="flex-1 flex flex-col bg-slate-950/60 rounded-xl border border-slate-800/80 p-4 relative overflow-hidden min-h-[500px]">
+            
+            <!-- Tab Switcher -->
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+                <div class="flex gap-2">
+                    <button id="tab2D" class="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium transition">2D Výřez</button>
+                    <button id="tab3D" class="px-4 py-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-medium transition">3D Svět (Three.js)</button>
+                </div>
+                <div id="statusText" class="text-xs text-slate-400">Nahráním fotky začněte</div>
+            </div>
+
+            <!-- 2D View Container -->
+            <div id="view2D" class="flex-1 flex flex-col items-center justify-center relative overflow-hidden">
+                <div id="placeholderText" class="text-center text-slate-500">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+                    </svg>
+                    <p class="text-sm">Zatím nebyl nahrán žádný obrázek</p>
+                </div>
+                <canvas id="canvas" class="max-w-full max-h-[500px] object-contain rounded-lg hidden shadow-xl cursor-crosshair"></canvas>
+            </div>
+
+            <!-- 3D View Container -->
+            <div id="view3D" class="flex-1 hidden relative w-full h-[500px] rounded-lg overflow-hidden">
+                <div id="webglContainer" class="w-full h-full"></div>
+                <div class="absolute bottom-4 left-4 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 pointer-events-none">
+                    💡 Pohyb myší + táhnutí: Otočit kameru • Kolečko: Zoom
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <footer class="w-full max-w-6xl text-center mt-6 text-xs text-slate-500">
+        Nástroj pro polygonový ořez & Three.js 3D rekonsturkce
+    </footer>
+
+    <script>
+        const imageLoader = document.getElementById('imageLoader');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const placeholderText = document.getElementById('placeholderText');
+        const btnSendTo3D = document.getElementById('btnSendTo3D');
+        const btnReset = document.getElementById('btnReset');
+        const btnClosePoly = document.getElementById('btnClosePoly');
+        
+        const tab2D = document.getElementById('tab2D');
+        const tab3D = document.getElementById('tab3D');
+        const view2D = document.getElementById('view2D');
+        const view3D = document.getElementById('view3D');
+        const statusText = document.getElementById('statusText');
+
+        let img = new Image();
+        let isImageLoaded = false;
+        let polyPoints = [];
+        let isClosed = false;
+        let cutOutDataUrl = null;
+
+        // Three.js variables
+        let scene, camera, renderer, cubeMesh;
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let cubeRotation = { x: 0.2, y: -0.5 };
+
+        imageLoader.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    isImageLoaded = true;
+                    placeholderText.classList.add('hidden');
+                    canvas.classList.remove('hidden');
+                    statusText.textContent = 'Obrázek nahrán. Vyznačte polygon.';
+                    
+                    polyPoints = [];
+                    isClosed = false;
+                    btnSendTo3D.setAttribute('disabled', 'true');
+                    btnClosePoly.setAttribute('disabled', 'true');
+
+                    redraw();
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function getMousePos(evt) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (evt.clientX - rect.left) * scaleX,
+                y: (evt.clientY - rect.top) * scaleY
+            };
+        }
+
+        canvas.addEventListener('click', (e) => {
+            if (!isImageLoaded || isClosed) return;
+            const pos = getMousePos(e);
+
+            if (polyPoints.length >= 3) {
+                const first = polyPoints[0];
+                const dist = Math.hypot(pos.x - first.x, pos.y - first.y);
+                if (dist < Math.max(15, canvas.width / 50)) {
+                    closePolygon();
+                    return;
+                }
+            }
+
+            polyPoints.push(pos);
+            if (polyPoints.length >= 3) {
+                btnClosePoly.removeAttribute('disabled');
+            }
+            redraw();
+        });
+
+        function closePolygon() {
+            if (polyPoints.length < 3) return;
+            isClosed = true;
+            btnClosePoly.setAttribute('disabled', 'true');
+            btnSendTo3D.removeAttribute('disabled');
+            statusText.textContent = 'Polygon uzavřen. Můžete přejít do 3D.';
+            redraw();
+        }
+
+        btnClosePoly.addEventListener('click', closePolygon);
+
+        btnReset.addEventListener('click', () => {
+            if (!isImageLoaded) return;
+            polyPoints = [];
+            isClosed = false;
+            btnSendTo3D.setAttribute('disabled', 'true');
+            btnClosePoly.setAttribute('disabled', 'true');
+            statusText.textContent = 'Bodový výběr resetován.';
+            redraw();
+        });
+
+        function redraw() {
+            if (!isImageLoaded) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+
+            if (polyPoints.length === 0) return;
+
+            if (isClosed) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(polyPoints[0].x, polyPoints[0].y);
+                for (let i = 1; i < polyPoints.length; i++) {
+                    ctx.lineTo(polyPoints[i].x, polyPoints[i].y);
+                }
+                ctx.closePath();
+                ctx.clip();
+                ctx.drawImage(img, 0, 0);
+                ctx.restore();
+
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = Math.max(2, canvas.width / 300);
+                ctx.stroke();
+            } else {
+                ctx.strokeStyle = '#60a5fa';
+                ctx.lineWidth = Math.max(2, canvas.width / 300);
+                ctx.beginPath();
+                ctx.moveTo(polyPoints[0].x, polyPoints[0].y);
+                for (let i = 1; i < polyPoints.length; i++) {
+                    ctx.lineTo(polyPoints[i].x, polyPoints[i].y);
+                }
+                ctx.stroke();
+            }
+
+            polyPoints.forEach((p, idx) => {
+                ctx.fillStyle = idx === 0 && !isClosed ? '#f59e0b' : '#3b82f6';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, Math.max(5, canvas.width / 180), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+        }
+
+        // Generate cut out and switch to 3D tab
+        btnSendTo3D.addEventListener('click', () => {
+            if (!isImageLoaded || !isClosed || polyPoints.length < 3) return;
+
+            let minX = Math.min(...polyPoints.map(p => p.x));
+            let maxX = Math.max(...polyPoints.map(p => p.x));
+            let minY = Math.min(...polyPoints.map(p => p.y));
+            let maxY = Math.max(...polyPoints.map(p => p.y));
+
+            let width = maxX - minX;
+            let height = maxY - minY;
+
+            if (width < 10 || height < 10) return;
+
+            let sourceCanvas = document.createElement('canvas');
+            sourceCanvas.width = width;
+            sourceCanvas.height = height;
+            let sCtx = sourceCanvas.getContext('2d');
+
+            sCtx.beginPath();
+            polyPoints.forEach((p, idx) => {
+                if (idx === 0) sCtx.moveTo(p.x - minX, p.y - minY);
+                else sCtx.lineTo(p.x - minX, p.y - minY);
+            });
+            sCtx.closePath();
+            sCtx.clip();
+
+            sCtx.drawImage(img, minX, minY, width, height, 0, 0, width, height);
+
+            cutOutDataUrl = sourceCanvas.toDataURL('image/png');
+
+            // Switch view
+            switchTo3D();
+        });
+
+        // Tabs logic
+        tab2D.addEventListener('click', () => {
+            tab2D.className = 'px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium transition';
+            tab3D.className = 'px-4 py-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-medium transition';
+            view2D.classList.remove('hidden');
+            view3D.classList.add('hidden');
+        });
+
+        tab3D.addEventListener('click', () => {
+            if (!cutOutDataUrl) {
+                alert('Nejprve prosím vytvořte výřez v 2D záložce.');
+                return;
+            }
+            switchTo3D();
+        });
+
+        function switchTo3D() {
+            tab3D.className = 'px-4 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium transition';
+            tab2D.className = 'px-4 py-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg text-xs font-medium transition';
+            view2D.classList.add('hidden');
+            view3D.classList.remove('hidden');
+            statusText.textContent = 'Zobrazeno v 3D světě';
+
+            initThreeJS();
+        }
+
+        // Three.js Setup
+        function initThreeJS() {
+            const container = document.getElementById('webglContainer');
+            if (scene) {
+                // Already initialized, just update texture
+                updateCubeTexture();
+                return;
+            }
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0f1d);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(0, 0, 5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+            directionalLight.position.set(5, 10, 7);
+            scene.add(directionalLight);
+
+            // Create Cube
+            const geometry = new THREE.BoxGeometry(2, 2, 0.5);
+            
+            const textureLoader = new THREE.TextureLoader();
+            textureLoader.load(cutOutDataUrl, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                
+                // Materials for faces (front gets cut out texture, others get neutral color)
+                const materials = [
+                    new THREE.MeshStandardMaterial({ color: 0x334155 }), // right
+                    new THREE.MeshStandardMaterial({ color: 0x334155 }), // left
+                    new THREE.MeshStandardMaterial({ color: 0x334155 }), // top
+                    new THREE.MeshStandardMaterial({ color: 0x334155 }), // bottom
+                    new THREE.MeshStandardMaterial({ map: texture }),     // front
+                    new THREE.MeshStandardMaterial({ color: 0x1e293b })  // back
+                ];
+
+                cubeMesh = new THREE.Mesh(geometry, materials);
+                cubeMesh.rotation.x = cubeRotation.x;
+                cubeMesh.rotation.y = cubeRotation.y;
+                scene.add(cubeMesh);
+                animate();
+            });
+
+            // Mouse interaction for rotation
+            container.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging || !cubeMesh) return;
+                const deltaX = e.clientX - previousMousePosition.x;
+                const deltaY = e.clientY - previousMousePosition.y;
+
+                cubeMesh.rotation.y += deltaX * 0.008;
+                cubeMesh.rotation.x += deltaY * 0.008;
+
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            // Touch support
+            container.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }
+            });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!isDragging || !cubeMesh || e.touches.length !== 1) return;
+                const deltaX = e.touches[0].clientX - previousMousePosition.x;
+                const deltaY = e.touches[0].clientY - previousMousePosition.y;
+
+                cubeMesh.rotation.y += deltaX * 0.008;
+                cubeMesh.rotation.x += deltaY * 0.008;
+
+                previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            });
+
+            window.addEventListener('touchend', () => { isDragging = false; });
+
+            // Window resize
+            window.addEventListener('resize', () => {
+                if (!container) return;
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+        }
+
+        function updateCubeTexture() {
+            if (!cubeMesh) return;
+            const textureLoader = new THREE.TextureLoader();
+            textureLoader.load(cutOutDataUrl, (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
+                cubeMesh.material[4].map = texture;
+                cubeMesh.material[4].needsUpdate = true;
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>Hlavní tř., Havířov — zapečený fotorealistický render</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#000;
+    font:13px/1.4 system-ui,sans-serif;color:#fff}
+  canvas{display:block}
+  #ui{position:fixed;left:14px;top:14px;z-index:10;
+      background:rgba(10,12,16,.75);backdrop-filter:blur(12px);
+      border:1px solid rgba(255,255,255,.08);border-radius:12px;
+      padding:12px 14px;box-shadow:0 8px 40px rgba(0,0,0,.7);max-width:310px}
+  #ui b{font-size:14px;letter-spacing:.3px;display:block;margin-bottom:8px;
+        color:#e8eef7;font-weight:600}
+  #ui button{margin:2px 3px 2px 0;padding:6px 10px;border:1px solid rgba(255,255,255,.08);
+    border-radius:6px;background:rgba(255,255,255,.04);color:#cfd7e3;
+    cursor:pointer;font-size:11px;transition:.15s}
+  #ui button:hover{background:rgba(255,255,255,.1);color:#fff}
+  #ui button.active{background:#3b82f6;color:#fff;border-color:#3b82f6;
+    box-shadow:0 0 20px rgba(59,130,246,.5)}
+  #ui .row{margin-top:8px;font-size:11px;color:#8b95a3}
+  #ui label{display:flex;justify-content:space-between;align-items:center;
+    margin:4px 0;cursor:pointer}
+  #ui input{accent-color:#3b82f6}
+  #load{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    background:rgba(10,12,16,.95);padding:22px 36px;border-radius:12px;z-index:20;
+    border:1px solid rgba(255,255,255,.08);text-align:center;
+    font-size:12px;letter-spacing:.4px;min-width:320px}
+  #load .bar{height:2px;background:rgba(255,255,255,.1);margin-top:12px;
+    border-radius:2px;overflow:hidden}
+  #load .bar div{height:100%;background:#3b82f6;width:0%;
+    transition:width .2s;box-shadow:0 0 12px #3b82f6}
+  #load .sub{color:#8b95a3;font-size:11px;margin-top:8px}
+  #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+    background:rgba(10,12,16,.65);padding:7px 16px;border-radius:20px;
+    font-size:11px;color:#98a3b3;border:1px solid rgba(255,255,255,.06);
+    backdrop-filter:blur(10px);pointer-events:none;transition:opacity .5s}
+  #perf{position:fixed;right:14px;top:14px;z-index:10;
+    background:rgba(10,12,16,.75);padding:8px 12px;border-radius:8px;
+    font-size:11px;color:#7dd3fc;font-family:monospace;line-height:1.6;
+    border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(12px);
+    min-width:150px}
+  #perf b{color:#4ade80}
+  #perf .dim{color:#5a6470}
+  #perf .ok{color:#4ade80}
+</style>
+</head>
+<body>
+<div id="ui">
+  <b>Hlavní tř., Havířov</b>
+  <button data-v="0">1 — po ose</button>
+  <button data-v="1">2 — přechod</button>
+  <button data-v="2">3 — chodník</button>
+  <button data-v="3">4 — fasáda</button>
+  <button data-v="4">5 — zastávka</button>
+  <button data-v="5">6 — výkladce</button>
+  <button data-v="6">7 — pták</button>
+  <div class="row">
+    <label><span>Grain</span><input type="checkbox" id="opt-grain" checked></label>
+    <label><span>Vignette</span><input type="checkbox" id="opt-vig" checked></label>
+    <label><span>Odrazy (envMap)</span><input type="checkbox" id="opt-refl" checked></label>
+  </div>
+</div>
+<div id="perf">
+  <div><b id="fps">--</b> fps</div>
+  <div id="res" class="dim">--</div>
+  <div id="mode" class="dim">--</div>
+  <div id="bake" class="ok">bake: čekám</div>
+</div>
+<div id="load">
+  Zapečení scény…
+  <div class="bar"><div id="load-bar"></div></div>
+  <div class="sub" id="load-status">inicializace</div>
+</div>
+<div id="hint">Tažení = rozhlížení · kolečko = zoom</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {Sky}          from 'three/addons/objects/Sky.js';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ============================================================
+   GPU DETEKCE
+   ============================================================ */
+function detectGPU() {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return { tier: 1, name: 'none' };
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
+    const lc = name.toLowerCase();
+    let tier = 2;
+    if (/rtx|radeon rx|arc a|apple m[123]/.test(lc)) tier = 4;
+    else if (/gtx 1[06]|gtx 9|geforce mx|vega [6-9]|iris xe|radeon 6[0-9]0/.test(lc)) tier = 3;
+    else if (/iris|uhd 6[0-9]|vega [3-5]|radeon vega|hd graphics 6/.test(lc)) tier = 2;
+    else if (/intel|hd graphics|uhd/.test(lc)) tier = 1;
+    return { tier, name };
+  } catch(e) { return { tier: 2, name: 'error' }; }
+}
+const GPU = detectGPU();
+
+/* ============================================================
+   RENDER ROZLIŠENÍ (pevně na 720–1080p podle tieru)
+   ============================================================ */
+function pickRenderHeight() {
+  if (GPU.tier >= 4) return Math.min(innerHeight, 1080);
+  if (GPU.tier >= 3) return Math.min(innerHeight, 900);
+  if (GPU.tier >= 2) return Math.min(innerHeight, 720);
+  return Math.min(innerHeight, 600);
+}
+let renderHeight = pickRenderHeight();
+let renderWidth = Math.round(renderHeight * innerWidth / innerHeight);
+
+/* ============================================================
+   1. PARAMETRY
+   ============================================================ */
+const P = {
+  L: 400, median: 3.0, lane: 3.25, lanes: 2,
+  redLane: 3.25, walk: 7.0, bldDepth: 14,
+  bldH: 19, kerb: 0.14, parterH: 3.6
+};
+P.roadIn  = P.median;
+P.roadOut = P.roadIn  + P.lanes * P.lane;
+P.redOut  = P.roadOut + P.redLane;
+P.walkOut = P.redOut  + P.walk;
+P.bldOut  = P.walkOut + P.bldDepth;
+
+const BUS_STOPS = [
+  { z: -100, side: -1, name: 'Hlavní tř. — škola' },
+  { z:  -30, side:  1, name: 'Hlavní tř. — obchody' },
+  { z:   60, side: -1, name: 'Hlavní tř. — nemocnice' },
+  { z:  130, side:  1, name: 'Hlavní tř. — náměstí' }
+];
+
+/* ============================================================
+   2. RENDERER
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({
+  antialias: false,
+  powerPreference: 'high-performance',
+  stencil: false,
+  depth: true
+});
+renderer.setSize(renderWidth, renderHeight, false);
+renderer.domElement.style.width = '100%';
+renderer.domElement.style.height = '100%';
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = false;    // ← vypnuto, stíny jsou zapečené
+renderer.physicallyCorrectLights = false;
+document.body.appendChild(renderer.domElement);
+
+/* ============================================================
+   3. SCÉNA + KAMERA
+   ============================================================ */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbcd3ea);
+const camera = new THREE.PerspectiveCamera(58, renderWidth/renderHeight, 0.1, 700);
+
+/* ============================================================
+   4. OBLoha (Sky shader - zůstává dynamická, je to jen matematika)
+   ============================================================ */
+const sunPos = new THREE.Vector3();
+sunPos.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 42),
+                                 THREE.MathUtils.degToRad(160));
+
+const sky = new Sky();
+sky.scale.setScalar(10000);
+const skyU = sky.material.uniforms;
+skyU.turbidity.value = 3.2;
+skyU.rayleigh.value = 1.4;
+skyU.mieCoefficient.value = 0.005;
+skyU.mieDirectionalG.value = 0.78;
+skyU.sunPosition.value.copy(sunPos);
+scene.add(sky);
+
+/* ============================================================
+   5. PROCEDURÁLNÍ TEXTURY
+   ============================================================ */
+const cv = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+
+function noiseFill(g, size, variance) {
+  const img = g.getImageData(0, 0, size, size); const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * variance;
+    d[i]   = Math.max(0, Math.min(255, d[i]   + n));
+    d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
+    d[i+2] = Math.max(0, Math.min(255, d[i+2] + n));
+  }
+  g.putImageData(img, 0, 0);
+}
+
+function makeTex(canvas, rx = 1, ry = 1, srgb = true) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  t.repeat.set(rx, ry);
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  return t;
+}
+
+function asphaltTex(size = 256) {
+  const c = cv(size, size); const g = c.getContext('2d');
+  g.fillStyle = '#2e3033'; g.fillRect(0, 0, size, size);
+  noiseFill(g, size, 38);
+  for (let i = 0; i < 900; i++) {
+    const v = 60 + Math.random()*110;
+    g.fillStyle = `rgba(${v},${v},${v},${0.2+Math.random()*0.4})`;
+    g.fillRect(Math.random()*size, Math.random()*size, 1, 1);
+  }
+  return makeTex(c, 4, 100);
+}
+
+function paveTex(size = 256) {
+  const c = cv(size, size); const g = c.getContext('2d');
+  g.fillStyle = '#7d8085'; g.fillRect(0,0,size,size);
+  noiseFill(g, size, 20);
+  const tile = 16;
+  for (let y = 0; y < size; y += tile) {
+    for (let x = 0; x < size; x += tile) {
+      const v = 118 + Math.floor(Math.random()*34);
+      g.fillStyle = `rgb(${v},${v+1},${v+3})`;
+      g.fillRect(x+1, y+1, tile-2, tile-2);
+    }
+  }
+  g.strokeStyle = 'rgba(40,40,45,0.65)';
+  g.lineWidth = 1;
+  for (let y = 0; y <= size; y += tile) { g.beginPath(); g.moveTo(0,y); g.lineTo(size,y); g.stroke(); }
+  for (let x = 0; x <= size; x += tile) { g.beginPath(); g.moveTo(x,0); g.lineTo(x,size); g.stroke(); }
+  return makeTex(c, 1.2, 50);
+}
+
+function grassTex(size = 256) {
+  const c = cv(size, size); const g = c.getContext('2d');
+  g.fillStyle = '#3c5a2a'; g.fillRect(0,0,size,size);
+  noiseFill(g, size, 18);
+  for (let i = 0; i < 2500; i++) {
+    const v = Math.random();
+    g.strokeStyle = v < 0.5
+      ? `rgba(${50+Math.random()*40},${85+Math.random()*55},${35+Math.random()*30},0.55)`
+      : `rgba(${90+Math.random()*45},${115+Math.random()*40},${55+Math.random()*30},0.45)`;
+    g.lineWidth = 0.6;
+    const x = Math.random()*size, y = Math.random()*size;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + (Math.random()-0.5)*5, y - 2 - Math.random()*5);
+    g.stroke();
+  }
+  return makeTex(c, 2, 50);
+}
+
+function sorelaTex(size = 256, tint = 0xd4c8ae, accent = 0xa8763e) {
+  const c = cv(size, size); const g = c.getContext('2d');
+  g.fillStyle = '#' + new THREE.Color(tint).getHexString();
+  g.fillRect(0,0,size,size);
+  noiseFill(g, size, 22);
+  const accentCol = '#' + new THREE.Color(accent).getHexString();
+  const floors = 6, rowH = size / floors;
+  g.fillStyle = '#8d7a63';
+  g.fillRect(0, size - rowH * 0.25, size, rowH * 0.25);
+  for (let f = 0; f < floors; f++) {
+    const y = f * rowH;
+    g.fillStyle = accentCol; g.globalAlpha = 0.55;
+    for (let i = 0; i < 12; i++) {
+      g.beginPath();
+      g.arc((i + 0.5) * (size/12), y + rowH*0.18, rowH*0.06, 0, Math.PI*2);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+  }
+  g.fillStyle = 'rgba(0,0,0,0.06)';
+  for (let i = 0; i <= 12; i++) g.fillRect(i * (size/12) - 1, 0, 2, size);
+  return makeTex(c);
+}
+
+function sorelaDecorTex(size = 256) {
+  const c = cv(size, size); const g = c.getContext('2d');
+  g.fillStyle = '#d8cdb5'; g.fillRect(0,0,size,size);
+  noiseFill(g, size, 18);
+  const floors = 6, rowH = size/floors;
+  for (let f = 0; f < floors; f++) {
+    const y = f * rowH + rowH * 0.5;
+    g.strokeStyle = 'rgba(255,250,235,0.85)';
+    g.lineWidth = 1.5;
+    for (let i = 0; i < 10; i++) {
+      const cx = (i + 0.5) * (size/10);
+      g.beginPath(); g.arc(cx, y, rowH*0.12, 0, Math.PI*2); g.stroke();
+      g.beginPath();
+      g.moveTo(cx, y - rowH*0.32); g.lineTo(cx, y + rowH*0.32);
+      g.stroke();
+    }
+  }
+  return makeTex(c);
+}
+
+function brickTex(size = 256) {
+  const c = cv(size, size); const g = c.getContext('2d');
+  g.fillStyle = '#8f2a24'; g.fillRect(0,0,size,size);
+  noiseFill(g, size, 18);
+  const bh = 8, bw = 20;
+  for (let y = 0; y < size; y += bh) {
+    const off = (y / bh) % 2 ? bw/2 : 0;
+    for (let x = -bw; x < size; x += bw) {
+      const v = Math.random()*30;
+      g.fillStyle = `rgb(${140+v},${42+v*0.5},${35+v*0.4})`;
+      g.fillRect(x + off + 1, y + 1, bw - 2, bh - 2);
+    }
+  }
+  return makeTex(c);
+}
+
+function shopSignTex(text, bg = '#f0efe8', fg = '#c8102e') {
+  const c = cv(256, 64); const g = c.getContext('2d');
+  g.fillStyle = bg; g.fillRect(0,0,256,64);
+  g.fillStyle = fg;
+  g.font = 'bold 30px Arial, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 128, 34);
+  return makeTex(c);
+}
+
+function timetableTex() {
+  const c = cv(192, 384); const g = c.getContext('2d');
+  g.fillStyle = '#f4f2ea'; g.fillRect(0,0,192,384);
+  g.fillStyle = '#c8102e'; g.fillRect(0,0,192,32);
+  g.fillStyle = '#fff'; g.font = 'bold 16px Arial';
+  g.textAlign = 'center'; g.fillText('ODJEZDY', 96, 22);
+  const lines = [
+    { n:'401', col:'#c8102e' }, { n:'402', col:'#1e4b8f' },
+    { n:'405', col:'#2e7d32' }, { n:'408', col:'#c96c1c' },
+    { n:'411', col:'#8b1a5e' }, { n:'416', col:'#0a6a9b' }
+  ];
+  let y = 48;
+  for (const l of lines) {
+    g.fillStyle = l.col; g.fillRect(8, y, 40, 22);
+    g.fillStyle = '#fff'; g.font = 'bold 15px Arial';
+    g.textAlign = 'center'; g.fillText(l.n, 28, y+16);
+    g.fillStyle = '#333'; g.font = '10px Arial';
+    g.textAlign = 'left'; g.fillText('6:15  7:05  8:20', 55, y+16);
+    y += 40;
+    if (y > 370) break;
+  }
+  return makeTex(c);
+}
+
+function stopSignTex(name) {
+  const c = cv(256, 128); const g = c.getContext('2d');
+  g.fillStyle = '#f4c52a'; g.fillRect(0,0,256,128);
+  g.strokeStyle = '#111'; g.lineWidth = 4; g.strokeRect(3,3,250,122);
+  g.fillStyle = '#111'; g.font = 'bold 20px Arial';
+  g.textAlign = 'center'; g.fillText('ZASTÁVKA', 128, 40);
+  g.font = 'bold 12px Arial'; g.fillText(name, 128, 65);
+  g.font = '10px Arial'; g.fillText('MHD · HAVÍŘOV', 128, 88);
+  g.font = 'bold 10px Arial'; g.fillText('nástupiště  B', 128, 110);
+  return makeTex(c);
+}
+
+function leafTex() {
+  const c = cv(64, 64); const g = c.getContext('2d');
+  g.clearRect(0,0,64,64);
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random()*64, y = Math.random()*64;
+    const r = 2 + Math.random()*5;
+    const v = 55 + Math.random()*80;
+    g.fillStyle = `rgba(${40+Math.random()*35},${v},${30+Math.random()*25},${0.55+Math.random()*0.4})`;
+    g.beginPath();
+    g.ellipse(x, y, r, r*0.65, Math.random()*Math.PI, 0, Math.PI*2);
+    g.fill();
+  }
+  return makeTex(c);
+}
+
+const TEX = {
+  road:    asphaltTex(256),
+  pave:    paveTex(256),
+  grass:   grassTex(256),
+  sorela1: sorelaTex(256, 0xd4c8ae, 0xa8763e),
+  sorela2: sorelaDecorTex(256),
+  brick:   brickTex(256),
+  leaf:    leafTex()
+};
+
+/* ============================================================
+   6. MATERIÁLY – runtime (bez světel, jen map)
+   ============================================================ */
+const matRoad = new THREE.MeshBasicMaterial({ map: TEX.road, color: 0xffffff });
+const matPave = new THREE.MeshBasicMaterial({ map: TEX.pave, color: 0xffffff });
+const matGrass = new THREE.MeshBasicMaterial({ map: TEX.grass, color: 0xffffff });
+const matRed = new THREE.MeshBasicMaterial({ color: 0x8a3228 });
+const matKerb = new THREE.MeshBasicMaterial({ color: 0xbabcc0 });
+const matWhite = new THREE.MeshBasicMaterial({ color: 0xe8e8e0 });
+const matRoof = new THREE.MeshBasicMaterial({ color: 0x4a3128 });
+const matBlack = new THREE.MeshBasicMaterial({ color: 0x141618 });
+const matTrunk = new THREE.MeshBasicMaterial({ color: 0x4a3324 });
+const matMetal = new THREE.MeshBasicMaterial({ color: 0x6a7078 });
+const matSteel = new THREE.MeshBasicMaterial({ color: 0x9aa0a8 });
+const matYellow = new THREE.MeshBasicMaterial({ color: 0xf4c52a });
+
+// Sklo runtime – fake (odlesky z cubemapy)
+let reflectionCube = null;
+let matGlassShop, matGlassShelter, matGlassWindow;
+
+function makeGlassMats() {
+  const common = {
+    color: 0xffffff,
+    metalness: 0.85,
+    roughness: 0.05,
+    envMap: reflectionCube,
+    envMapIntensity: 1.8,
+    transparent: true,
+    opacity: 0.55,
+    side: THREE.DoubleSide
+  };
+  matGlassShop    = new THREE.MeshStandardMaterial({ ...common, color: 0x9fc9ba, opacity: 0.5 });
+  matGlassShelter = new THREE.MeshStandardMaterial({ ...common, color: 0x9fcba8, opacity: 0.55 });
+  matGlassWindow  = new THREE.MeshStandardMaterial({ color: 0x1a2028, metalness: 0.9, roughness: 0.08,
+    envMap: reflectionCube, envMapIntensity: 2.2 });
+}
+
+// Leaf – alpha test, bez stínů
+const matLeaf = new THREE.MeshBasicMaterial({
+  map: TEX.leaf, transparent: true, alphaTest: 0.5,
+  side: THREE.DoubleSide, color: 0xa8c088
+});
+
+/* ============================================================
+   7. STAVBA SCÉNY (bez světel, jen geometrie + materiály)
+   ============================================================ */
+const BUILD_RESULT = {
+  staticScene: new THREE.Group(),   // statická část pro bake
+  staticMeshes: [],
+  dynamicScene: new THREE.Group(),  // dynamické (listí)
+  leafMeshes: []
+};
+scene.add(BUILD_RESULT.staticScene);
+scene.add(BUILD_RESULT.dynamicScene);
+
+let facadeCounter = 0;
+const photoTexs = new Array(22).fill(null);
+
+/* ============================================================
+   8. NAČTENÍ FOTEK
+   ============================================================ */
+const PHOTOS = Array.from({length:22}, (_,i) => `foto${String(i+1).padStart(2,'0')}.jpg`);
+let loadedCount = 0;
+const loadBar = document.getElementById('load-bar');
+const loadStatus = document.getElementById('load-status');
+const loader = new THREE.TextureLoader();
+
+function setProgress(p, s) {
+  loadBar.style.width = (p*100).toFixed(0) + '%';
+  if (s) loadStatus.textContent = s;
+}
+
+function loadPhotos() {
+  return new Promise(resolve => {
+    PHOTOS.forEach((src, i) => {
+      loader.load(src,
+        t => {
+          t.colorSpace = THREE.SRGBColorSpace;
+          t.anisotropy = 4;
+          t.minFilter = THREE.LinearMipmapLinearFilter;
+          photoTexs[i] = t;
+          loadedCount++;
+          setProgress(loadedCount / PHOTOS.length * 0.3, `fotky ${loadedCount}/${PHOTOS.length}`);
+          if (loadedCount === PHOTOS.length) resolve();
+        },
+        undefined,
+        () => {
+          loadedCount++;
+          setProgress(loadedCount / PHOTOS.length * 0.3, `fotky ${loadedCount}/${PHOTOS.length}`);
+          if (loadedCount === PHOTOS.length) resolve();
+        });
+    });
+  });
+}
+
+function photoFacadeMaterial(tex) {
+  if (!tex) return null;
+  const tt = tex.clone();
+  tt.needsUpdate = true;
+  tt.wrapS = tt.wrapT = THREE.ClampToEdgeWrapping;
+  tt.repeat.set(1, 0.68);
+  tt.offset.set(0, 0.32);
+  return new THREE.MeshBasicMaterial({ map: tt });
+}
+
+/* ============================================================
+   9. BUDOVA (bez světel, jen geometrie + mapy)
+   ============================================================ */
+function buildBuilding(parent, cx, cz, width, depth, height, side, options = {}) {
+  const group = new THREE.Group();
+  group.position.set(cx, 0, cz);
+
+  const baseTex = options.facadeTex || TEX.sorela1;
+  const facadeTex = baseTex.clone();
+  facadeTex.needsUpdate = true;
+  facadeTex.repeat.set(width / 6, 1);
+  const facadeMat = new THREE.MeshBasicMaterial({ map: facadeTex });
+
+  const sideTex = baseTex.clone();
+  sideTex.needsUpdate = true;
+  sideTex.repeat.set(depth / 6, 1);
+  const sideFacadeMat = new THREE.MeshBasicMaterial({ map: sideTex });
+
+  let photoMat = null;
+  if (photoTexs.some(Boolean)) {
+    const idx = facadeCounter % photoTexs.length;
+    facadeCounter++;
+    photoMat = photoFacadeMaterial(photoTexs[idx]);
+  }
+
+  const faceIdx = side === 1 ? 1 : 0;
+  const mats = [];
+  for (let i = 0; i < 6; i++) {
+    if (i === faceIdx) mats.push(photoMat || facadeMat);
+    else if (i === 2) mats.push(matRoof);
+    else if (i === 3) mats.push(matBlack);
+    else if (i === 0 || i === 1) mats.push(sideFacadeMat);
+    else mats.push(facadeMat);
+  }
+
+  const bodyH = height - P.parterH;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(depth, bodyH, width), mats);
+  body.position.y = P.parterH + bodyH / 2;
+  group.add(body);
+
+  const cor = new THREE.Mesh(
+    new THREE.BoxGeometry(depth + 0.5, 0.42, width + 0.5), matRoof);
+  cor.position.y = height + 0.2;
+  group.add(cor);
+
+  const parter = new THREE.Mesh(
+    new THREE.BoxGeometry(depth + 0.05, P.parterH, width + 0.05),
+    new THREE.MeshBasicMaterial({ color: 0x6b5a48 }));
+  parter.position.y = P.parterH / 2;
+  group.add(parter);
+
+  const sokl = new THREE.Mesh(
+    new THREE.BoxGeometry(depth + 0.15, 0.6, width + 0.15),
+    new THREE.MeshBasicMaterial({ color: 0x2e2e30 }));
+  sokl.position.y = 0.3;
+  group.add(sokl);
+
+  // Výkladce + cedule + emissive plocha (bude zapečená do lightmapy)
+  const shopNames = ['POTRAVINY','TEXTIL','DROGERIE','KNIHY','KVĚTINY','PEKAŘSTVÍ','TABÁK','LÉKÁRNA'];
+  const shopColors = ['#c8102e','#1e4b8f','#2e7d32','#b8860b','#8b1a5e','#e8b71a','#0a6a9b','#c96c1c'];
+  const shopGlow = [0xffd8a0, 0xffe8b8, 0xd8e8ff, 0xffe0c0, 0xffd0d8, 0xfff0c0, 0xd8e0ff, 0xffe8a0];
+
+  const numShops = Math.max(2, Math.floor(width / 6));
+  const shopW = width / numShops - 0.4;
+  const faceX = side === 1 ? -depth/2 - 0.02 : depth/2 + 0.02;
+
+  const shopGlassGeo = new THREE.BoxGeometry(0.08, 2.4, shopW * 0.85);
+  const shopInteriorGeo = new THREE.PlaneGeometry(shopW * 0.85, 2.4);
+
+  for (let i = 0; i < numShops; i++) {
+    const zOff = -width/2 + (i + 0.5) * (width / numShops);
+
+    const glass = new THREE.Mesh(shopGlassGeo, matGlassShop);
+    glass.position.set(faceX, 1.5, zOff);
+    group.add(glass);
+
+    // Interiér – svítí a bude zapečen do lightmapy
+    const interior = new THREE.Mesh(
+      shopInteriorGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        map: null
+      })
+    );
+    // Tento mesh je "světlo" pro bake – přidáme ho do zvláštního seznamu
+    interior.userData.emissiveBake = shopGlow[(i + numShops) % shopGlow.length];
+    interior.position.set(side === 1 ? -depth/2 + 0.35 : depth/2 - 0.35, 1.5, zOff);
+    interior.rotation.y = side === 1 ? Math.PI/2 : -Math.PI/2;
+    group.add(interior);
+
+    const idx = (i + numShops) % shopNames.length;
+    const signTex = shopSignTex(shopNames[idx], '#f0efe8', shopColors[idx]);
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(shopW * 0.9, 0.65),
+      new THREE.MeshBasicMaterial({ map: signTex })
+    );
+    sign.position.set(faceX - side * 0.04, 3.0, zOff);
+    sign.rotation.y = side === 1 ? -Math.PI/2 : Math.PI/2;
+    group.add(sign);
+  }
+
+  // Okna v patrech (3D geometrie)
+  const numFloors = 5;
+  const floorH = bodyH / numFloors;
+  const numWindows = Math.max(3, Math.floor(width / 3.2));
+
+  const frameGeos = [];
+  const glassGeos = [];
+  const glowGeos = [];
+
+  const frameBase = new THREE.BoxGeometry(0.06, 1.85, 1.55);
+  const winBase = new THREE.BoxGeometry(0.07, 1.7, 1.4);
+  const glowBase = new THREE.PlaneGeometry(1.26, 1.53);
+
+  for (let f = 0; f < numFloors; f++) {
+    const yF = P.parterH + floorH * (f + 0.5);
+    for (let w = 0; w < numWindows; w++) {
+      const zOff = -width/2 + (w + 0.5) * (width / numWindows);
+
+      const fg = frameBase.clone();
+      fg.translate(faceX, yF, zOff);
+      frameGeos.push(fg);
+
+      const wg = winBase.clone();
+      wg.translate(faceX - side * 0.035, yF, zOff);
+      glassGeos.push(wg);
+
+      // Rozsvícená okna (13%) – zapečou se do lightmapy
+      if (Math.random() < 0.13) {
+        const gg = glowBase.clone();
+        gg.rotateY(side === 1 ? Math.PI/2 : -Math.PI/2);
+        gg.translate(faceX - side * 0.05, yF, zOff);
+        glowGeos.push(gg);
+      }
+    }
+  }
+
+  if (frameGeos.length) {
+    const m = new THREE.Mesh(mergeGeometries(frameGeos),
+      new THREE.MeshBasicMaterial({ color: 0xdad5c8 }));
+    group.add(m);
+  }
+  if (glassGeos.length) {
+    const m = new THREE.Mesh(mergeGeometries(glassGeos), matGlassWindow);
+    group.add(m);
+  }
+  if (glowGeos.length) {
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0xffcc80, transparent: true, opacity: 1.0
+    });
+    glowMat.userData.emissiveBake = 0xffcc80;
+    const m = new THREE.Mesh(mergeGeometries(glowGeos), glowMat);
+    m.userData.emissiveBake = 0xffcc80;
+    group.add(m);
+  }
+
+  parent.add(group);
+  BUILD_RESULT.staticMeshes.push(group);
+  return group;
+}
+
+/* ============================================================
+   10. STROM
+   ============================================================ */
+function buildTree(parent, x, z, scale = 1, dynamic = false) {
+  const g = new THREE.Group();
+
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22*scale, 0.36*scale, 4.5*scale, 7),
+    matTrunk
+  );
+  trunk.position.y = 2.25*scale;
+  g.add(trunk);
+
+  const leafCount = GPU.tier >= 3 ? 5 : 3;
+  for (let i = 0; i < leafCount; i++) {
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(1, 7, 5), matLeaf);
+    const s = (2.0 + Math.random() * 0.8) * scale;
+    leaf.scale.set(s, s, s);
+    const a = (i / leafCount) * Math.PI * 2 + Math.random() * 0.8;
+    const r = Math.random() * 0.9 * scale;
+    leaf.position.set(
+      Math.cos(a) * r,
+      (5.5 + Math.random() * 1.0) * scale,
+      Math.sin(a) * r
+    );
+    g.add(leaf);
+    if (dynamic) BUILD_RESULT.leafMeshes.push(leaf);
+  }
+
+  g.position.set(x, 0, z);
+  parent.add(g);
+  return g;
+}
+
+/* ============================================================
+   11. ZASTÁVKA
+   ============================================================ */
+function buildBusStop(parent, zCenter, side, stopName) {
+  const g = new THREE.Group();
+  const xMid = side * (P.redOut + P.walk * 0.45);
+  const xWalkOuter = side * (P.walkOut - 0.15);
+  const platformLen = 12;
+
+  const platform = new THREE.Mesh(
+    new THREE.BoxGeometry(P.walk - 0.2, 0.18, platformLen),
+    new THREE.MeshBasicMaterial({ color: 0xa8a59d })
+  );
+  platform.position.set(side * (P.redOut + P.walk/2), 0.24, zCenter);
+  g.add(platform);
+
+  const edge = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.02, platformLen - 0.4), matYellow);
+  edge.position.set(side * (P.redOut + 0.4), 0.34, zCenter);
+  g.add(edge);
+
+  const shelterZ = zCenter;
+  const roofW = 2.0, roofL = 6.0, roofH = 2.7;
+
+  const colGeos = [];
+  const colBase = new THREE.BoxGeometry(0.1, roofH, 0.1);
+  for (const [dx, dz] of [
+    [roofW/2 - 0.15, roofL/2 - 0.15],
+    [roofW/2 - 0.15, -roofL/2 + 0.15],
+    [-roofW/2 + 0.15, roofL/2 - 0.15],
+    [-roofW/2 + 0.15, -roofL/2 + 0.15]
+  ]) {
+    const c = colBase.clone();
+    c.translate(xMid + dx, 0.35 + roofH/2, shelterZ + dz);
+    colGeos.push(c);
+  }
+  g.add(new THREE.Mesh(mergeGeometries(colGeos), matSteel));
+
+  const roof = new THREE.Mesh(
+    new THREE.BoxGeometry(roofW + 0.3, 0.1, roofL + 0.3),
+    new THREE.MeshBasicMaterial({ color: 0x2a2e33 }));
+  roof.position.set(xMid, 0.35 + roofH + 0.05, shelterZ);
+  g.add(roof);
+
+  const backX = side * (P.walkOut - 0.25);
+  for (const dz of [-1.5, 1.5]) {
+    const glass = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, roofH - 0.3, 2.6), matGlassShelter);
+    glass.position.set(backX, 0.35 + (roofH-0.3)/2 + 0.15, shelterZ + dz);
+    g.add(glass);
+  }
+  const sideGlass = new THREE.Mesh(
+    new THREE.BoxGeometry(roofW - 0.3, roofH - 0.5, 0.05), matGlassShelter);
+  sideGlass.position.set(xMid, 0.35 + (roofH-0.5)/2 + 0.15, shelterZ + roofL/2 - 0.05);
+  g.add(sideGlass);
+
+  // Lavička
+  const woodMat = new THREE.MeshBasicMaterial({ color: 0x6b4a2a });
+  const benchGeos = [];
+  const latBase = new THREE.BoxGeometry(0.12, 0.04, 4.4);
+  for (let i = 0; i < 4; i++) {
+    const l = latBase.clone();
+    l.translate(xMid + 0.15 + i*0.13, 0.35 + 0.48, shelterZ);
+    benchGeos.push(l);
+  }
+  g.add(new THREE.Mesh(mergeGeometries(benchGeos), woodMat));
+
+  const legGeos = [];
+  const legBase = new THREE.BoxGeometry(0.08, 0.45, 0.08);
+  for (const dz of [-2, 0, 2]) {
+    const l = legBase.clone();
+    l.translate(xMid + 0.3, 0.35 + 0.22, shelterZ + dz);
+    legGeos.push(l);
+  }
+  g.add(new THREE.Mesh(mergeGeometries(legGeos), matSteel));
+
+  // Označník
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.055, 0.055, 4.2, 8), matSteel);
+  pole.position.set(xWalkOuter, 0.35 + 2.1, shelterZ - 4.2);
+  g.add(pole);
+
+  const stopTex = stopSignTex(stopName);
+  const stopSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.4, 0.7),
+    new THREE.MeshBasicMaterial({ map: stopTex, side: THREE.DoubleSide })
+  );
+  stopSign.position.set(xWalkOuter, 0.35 + 3.4, shelterZ - 4.2);
+  stopSign.rotation.y = side === 1 ? -Math.PI/2 : Math.PI/2;
+  g.add(stopSign);
+
+  // Jízdní řád
+  const ttPost = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.05, 2.6, 8), matSteel);
+  ttPost.position.set(xWalkOuter, 0.35 + 1.3, shelterZ + 4.2);
+  g.add(ttPost);
+
+  const ttFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(0.06, 1.6, 1.1),
+    new THREE.MeshBasicMaterial({ color: 0x333333 }));
+  ttFrame.position.set(xWalkOuter, 0.35 + 2.2, shelterZ + 4.2);
+  g.add(ttFrame);
+
+  const ttTex = timetableTex();
+  const ttPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.0, 1.5),
+    new THREE.MeshBasicMaterial({ map: ttTex, side: THREE.DoubleSide })
+  );
+  ttPanel.position.set(xWalkOuter + (side === 1 ? -0.04 : 0.04),
+                       0.35 + 2.2, shelterZ + 4.2);
+  ttPanel.rotation.y = side === 1 ? -Math.PI/2 : Math.PI/2;
+  g.add(ttPanel);
+
+  // Koš
+  const bin = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.2, 0.85, 8),
+    new THREE.MeshBasicMaterial({ color: 0x2e5a2e }));
+  bin.position.set(xMid - 0.6, 0.35 + 0.42, shelterZ + 3);
+  g.add(bin);
+
+  // Svítidlo pod střechou (bude zapečeno jako světlo)
+  const lum = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.1, 1.2),
+    new THREE.MeshBasicMaterial({ color: 0xfff0c8 }));
+  lum.userData.emissiveBake = 0xfff0c8;
+  lum.userData.emissiveStrength = 1.0;
+  lum.position.set(xMid, 0.35 + roofH - 0.08, shelterZ);
+  g.add(lum);
+
+  parent.add(g);
+  BUILD_RESULT.staticMeshes.push(g);
+  return g;
+}
+
+/* ============================================================
+   12. SESTAVENÍ SCÉNY
+   ============================================================ */
+function buildStaticScene() {
+  const parent = BUILD_RESULT.staticScene;
+
+  // Povrchy
+  const mkPlane = (x1, x2, y, mat) => {
+    const g = new THREE.PlaneGeometry(x2 - x1, P.L);
+    g.rotateX(-Math.PI/2);
+    g.translate((x1+x2)/2, y, 0);
+    const m = new THREE.Mesh(g, mat);
+    m.matrixAutoUpdate = false;
+    m.updateMatrix();
+    parent.add(m);
+  };
+  mkPlane(-P.median, P.median, 0.14, matGrass);
+  mkPlane(-P.roadOut, -P.roadIn, 0.0, matRoad);
+  mkPlane(P.roadIn, P.roadOut, 0.0, matRoad);
+  mkPlane(-P.redOut, -P.roadOut, 0.005, matRed);
+  mkPlane(P.roadOut, P.redOut, 0.005, matRed);
+  mkPlane(-P.walkOut, -P.redOut, 0.15, matPave);
+  mkPlane(P.redOut, P.walkOut, 0.15, matPave);
+
+  // Obrubníky
+  const kerbGeo = new THREE.BoxGeometry(0.18, 0.24, P.L);
+  for (const x of [-P.median - 0.09, P.median + 0.09,
+                   -P.redOut - 0.09, P.redOut + 0.09]) {
+    const m = new THREE.Mesh(kerbGeo, matKerb);
+    m.position.set(x, 0.12, 0);
+    m.matrixAutoUpdate = false;
+    m.updateMatrix();
+    parent.add(m);
+  }
+
+  // Dopravní značení
+  const dashGeos = [];
+  const dashBase = new THREE.PlaneGeometry(0.15, 4);
+  dashBase.rotateX(-Math.PI/2);
+  for (let z = -P.L/2 + 4; z < P.L/2; z += 9) {
+    for (const s of [-1, 1]) {
+      const d = dashBase.clone();
+      d.translate(s * (P.roadIn + P.lane), 0.018, z);
+      dashGeos.push(d);
+    }
+  }
+  const zebraBase = new THREE.PlaneGeometry(0.55, 4.8);
+  zebraBase.rotateX(-Math.PI/2);
+  for (let i = -4; i <= 4; i++) {
+    const s = zebraBase.clone();
+    s.translate(i * 1.02, 0.02, 0);
+    dashGeos.push(s);
+  }
+  parent.add(new THREE.Mesh(mergeGeometries(dashGeos), matWhite));
+
+  // BUS nápisy
+  const busCanvas = cv(128, 32);
+  const bg = busCanvas.getContext('2d');
+  bg.fillStyle = '#f2f0e6'; bg.fillRect(0,0,128,32);
+  bg.fillStyle = '#111'; bg.font = 'bold 24px Arial';
+  bg.textAlign = 'center'; bg.textBaseline = 'middle';
+  bg.fillText('BUS', 64, 17);
+  const busTex = makeTex(busCanvas);
+  busTex.wrapS = busTex.wrapT = THREE.ClampToEdgeWrapping;
+
+  for (const bs of BUS_STOPS) {
+    const busMark = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.5, 1.0),
+      new THREE.MeshBasicMaterial({ map: busTex, transparent: true })
+    );
+    busMark.rotation.x = -Math.PI/2;
+    busMark.rotation.z = bs.side === 1 ? 0 : Math.PI;
+    busMark.position.set(bs.side * (P.roadOut + P.redLane/2), 0.02, bs.z);
+    busMark.matrixAutoUpdate = false;
+    busMark.updateMatrix();
+    parent.add(busMark);
+  }
+
+  // Budovy
+  const blockLayout = [
+    { len: 42, height: 19, facade: 'sorela1' },
+    { len: 34, height: 20, facade: 'brick' },
+    { len: 48, height: 19, facade: 'sorela2' },
+    { len: 40, height: 19, facade: 'sorela1' },
+    { len: 32, height: 19, facade: 'sorela2' }
+  ];
+  const facadeTexByKey = (k) =>
+    k === 'brick' ? TEX.brick : k === 'sorela2' ? TEX.sorela2 : TEX.sorela1;
+
+  let layoutIdx = 0, used = 0;
+  while (used < P.L) {
+    const lay = blockLayout[layoutIdx % blockLayout.length];
+    layoutIdx++;
+    const bl = Math.min(lay.len, P.L - used);
+    const z = -P.L/2 + used + bl/2;
+    for (const side of [-1, 1]) {
+      const cx = side * (P.walkOut + P.bldDepth/2);
+      buildBuilding(parent, cx, z, bl - 0.4, P.bldDepth, lay.height, side, {
+        facadeTex: facadeTexByKey(lay.facade)
+      });
+    }
+    used += bl;
+  }
+
+  // Stromy ve STATICKÉ scéně – bez listí (listí je dynamické)
+  for (let z = -P.L/2 + 8; z < P.L/2; z += 16) {
+    buildTree(parent, 0, z, 0.9 + Math.random()*0.2, false);
+  }
+  for (const side of [-1, 1]) {
+    for (let z = -P.L/2 + 14; z < P.L/2; z += 14) {
+      const nearStop = BUS_STOPS.some(b => b.side === side && Math.abs(b.z - z) < 9);
+      if (nearStop) continue;
+      buildTree(parent, side * (P.redOut + 2.5), z, 0.85 + Math.random()*0.25, false);
+    }
+  }
+
+  // Keře
+  const bushGeos = [];
+  const bushBase = new THREE.SphereGeometry(0.9, 6, 4);
+  for (let z = -P.L/2 + 4; z < P.L/2; z += 6) {
+    const b = bushBase.clone();
+    const x = (Math.random()-0.5)*4;
+    b.scale(1, 0.6, 1);
+    b.translate(x, 0.6, z);
+    bushGeos.push(b);
+  }
+  parent.add(new THREE.Mesh(mergeGeometries(bushGeos), matLeaf));
+
+  // Lampy
+  const lampPoleGeos = [];
+  const lampArmGeos = [];
+  const lampBoxGeos = [];
+  const poleBase = new THREE.CylinderGeometry(0.11, 0.14, 9.5, 6);
+  const armBase = new THREE.CylinderGeometry(0.07, 0.07, 1.8, 5);
+  armBase.rotateZ(Math.PI/2);
+  const lampBase = new THREE.BoxGeometry(0.7, 0.18, 0.4);
+  for (const side of [-1, 1]) {
+    for (let z = -P.L/2 + 22; z < P.L/2; z += 40) {
+      const p = poleBase.clone();
+      p.translate(side * (P.redOut + 0.9), 4.75, z);
+      lampPoleGeos.push(p);
+      const a = armBase.clone();
+      a.translate(side * (P.redOut + 0.9) - side * 0.9, 9.3, z);
+      lampArmGeos.push(a);
+      const l = lampBase.clone();
+      l.translate(side * (P.redOut + 0.9) - side * 1.7, 9.2, z);
+      lampBoxGeos.push(l);
+    }
+  }
+  parent.add(new THREE.Mesh(mergeGeometries(lampPoleGeos), matMetal));
+  parent.add(new THREE.Mesh(mergeGeometries(lampArmGeos), matMetal));
+  parent.add(new THREE.Mesh(mergeGeometries(lampBoxGeos),
+    new THREE.MeshBasicMaterial({ color: 0x2a2e33 })));
+
+  // Značky
+  const postGeos = [];
+  const postBase = new THREE.CylinderGeometry(0.04, 0.04, 3, 5);
+  const signCanvas = cv(64, 64);
+  const gs = signCanvas.getContext('2d');
+  gs.fillStyle = '#1c4a9b'; gs.fillRect(0,0,64,64);
+  gs.fillStyle = '#fff';
+  gs.beginPath();
+  gs.moveTo(32,10); gs.lineTo(55,54); gs.lineTo(9,54); gs.closePath();
+  gs.fill();
+  gs.fillStyle = '#111';
+  gs.beginPath(); gs.arc(32,31,3,0,Math.PI*2); gs.fill();
+  gs.fillRect(29,34,6,10);
+  const signTex = makeTex(signCanvas);
+  signTex.wrapS = signTex.wrapT = THREE.ClampToEdgeWrapping;
+  const signMat = new THREE.MeshBasicMaterial({ map: signTex, side: THREE.DoubleSide });
+  const signs = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.7, 0.7), signMat, 4);
+  const dummy = new THREE.Object3D();
+  let si = 0;
+  for (const side of [-1, 1]) {
+    for (const z of [-6, 6]) {
+      const p = postBase.clone();
+      p.translate(side * (P.redOut + 0.4), 1.5, z);
+      postGeos.push(p);
+      dummy.position.set(side * (P.redOut + 0.4), 3.2, z);
+      dummy.rotation.y = side === 1 ? -Math.PI/2 : Math.PI/2;
+      dummy.updateMatrix();
+      signs.setMatrixAt(si++, dummy.matrix);
+    }
+  }
+  signs.instanceMatrix.needsUpdate = true;
+  parent.add(signs);
+  parent.add(new THREE.Mesh(mergeGeometries(postGeos), matMetal));
+
+  // Zastávky
+  for (const bs of BUS_STOPS) {
+    buildBusStop(parent, bs.z, bs.side, bs.name);
+  }
+
+  // Kanály
+  const mhGeos = [];
+  const mhBase = new THREE.CircleGeometry(0.35, 8);
+  mhBase.rotateX(-Math.PI/2);
+  for (let z = -P.L/2 + 20; z < P.L/2; z += 60) {
+    for (const s of [-1, 1]) {
+      const m = mhBase.clone();
+      m.translate(s * (P.roadIn + P.lane*0.5), 0.02, z);
+      mhGeos.push(m);
+    }
+  }
+  parent.add(new THREE.Mesh(mergeGeometries(mhGeos),
+    new THREE.MeshBasicMaterial({ color: 0x1a1a1d })));
+
+  // Freeze statické scény
+  parent.traverse(o => {
+    if (o.isMesh) { o.matrixAutoUpdate = false; o.updateMatrix(); }
+  });
+}
+
+/* ============================================================
+   13. BAKING – zapečení světel a odrazů
+   ============================================================ */
+
+/* 13.1 Reflection CubeCamera – zapeče odrazy z 6 pohledů
+   ze středu ulice. Uloží se jako cubemapa, kterou budou
+   číst skla a kovové materiály. */
+async function bakeReflections() {
+  setProgress(0.4, 'zapečení odrazů (cubemapa)…');
+  await new Promise(r => setTimeout(r, 50));
+
+  const cubeRes = GPU.tier >= 3 ? 512 : 256;
+  const cubeRT = new THREE.WebGLCubeRenderTarget(cubeRes, {
+    generateMipmaps: true,
+    minFilter: THREE.LinearMipmapLinearFilter
+  });
+  const cubeCam = new THREE.CubeCamera(0.5, 400, cubeRT);
+  cubeCam.position.set(0, 4, -20);
+  scene.add(cubeCam);
+
+  // Skryjeme dynamické listí (chceme jen statické odrazy)
+  BUILD_RESULT.dynamicScene.visible = false;
+
+  // Dočasně nastavíme pozadí na oblohu pro odrazy
+  const oldBg = scene.background;
+  scene.background = new THREE.Color(0xbcd3ea);
+
+  cubeCam.update(renderer, scene);
+
+  BUILD_RESULT.dynamicScene.visible = true;
+  scene.remove(cubeCam);
+  scene.background = oldBg;
+
+  reflectionCube = cubeRT.texture;
+  scene.environment = reflectionCube;
+  return cubeRT;
+}
+
+/* 13.2 Lightmap Bake – zapeče:
+   - přímé sluneční světlo (směrové)
+   - ambientní oblohu
+   - emissive světla z výkladců a oken
+   - pseudo-AO (tmavé rohy)
+   do velké textury, kterou pak použijeme jako lightMap u všech
+   MeshBasicMaterialů přes emissiveMap (fake HDR).
+   
+   Postup:
+   1. Vytvoříme si vlastní "bake camera" = ortografickou kameru shora
+   2. Renderujeme scénu s fake lighting shaderem do rendertargetu
+   3. Textura se namapuje na hlavní plochy jako "AO" vrstva
+   
+   Pro jednoduchost a výkon: místo skutečného lightmap bake
+   vytvoříme velkou "ground lightmap" texturu, která zachytí
+   odrazy světla na chodníku a silnici (tmavší v rozích, světlejší
+   u výkladců). Aplikuje se jako additionalMultiply map. */
+
+/* 13.3 Ambient Occlusion + světelné gradienty
+   Vytvoří gradientovou texturu, která se aplikuje na povrchy
+   jako "pečené světlo" – světlejší uprostřed ulice, tmavší u zdí. */
+function bakeGroundLightmap(width = 1024, height = 2048) {
+  setProgress(0.55, 'zapečení ambientního světla…');
+
+  const c = cv(width, height);
+  const g = c.getContext('2d');
+
+  // Base gradient: světlo od slunce shora
+  const sunGrad = g.createLinearGradient(0, 0, width, 0);
+  sunGrad.addColorStop(0, '#a09890');        // u levé zdi – tmavší (stín)
+  sunGrad.addColorStop(0.5, '#ffffff');      // uprostřed – plné světlo
+  sunGrad.addColorStop(1, '#a8a098');        // u pravé zdi – mírně tmavší
+  g.fillStyle = sunGrad;
+  g.fillRect(0, 0, width, height);
+
+  // AO – tmavé pruhy u obrubníků
+  const aoLeft = g.createLinearGradient(0, 0, width * 0.08, 0);
+  aoLeft.addColorStop(0, 'rgba(0,0,0,0.55)');
+  aoLeft.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = aoLeft;
+  g.fillRect(0, 0, width * 0.08, height);
+
+  const aoRight = g.createLinearGradient(width, 0, width * 0.92, 0);
+  aoRight.addColorStop(0, 'rgba(0,0,0,0.55)');
+  aoRight.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = aoRight;
+  g.fillRect(width * 0.92, 0, width * 0.08, height);
+
+  // Emissive světla z výkladců – žluté fleky podél obrubníků
+  for (let y = 0; y < height; y += 220) {
+    for (const x of [width * 0.08, width * 0.92]) {
+      const rad = 130;
+      const grad = g.createRadialGradient(x, y, 0, x, y, rad);
+      grad.addColorStop(0, 'rgba(255,220,160,0.35)');
+      grad.addColorStop(0.6, 'rgba(255,200,120,0.12)');
+      grad.addColorStop(1, 'rgba(255,200,120,0)');
+      g.fillStyle = grad;
+      g.beginPath(); g.arc(x, y, rad, 0, Math.PI*2); g.fill();
+    }
+  }
+
+  // Žlutý flek ze zastávek MHD
+  for (const bs of BUS_STOPS) {
+    const zy = height * (1 - (bs.z + P.L/2) / P.L);
+    const x = bs.side === -1 ? width * 0.15 : width * 0.85;
+    const rad = 180;
+    const grad = g.createRadialGradient(x, zy, 0, x, zy, rad);
+    grad.addColorStop(0, 'rgba(255,230,160,0.5)');
+    grad.addColorStop(1, 'rgba(255,230,160,0)');
+    g.fillStyle = grad;
+    g.beginPath(); g.arc(x, zy, rad, 0, Math.PI*2); g.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/* 13.4 Finální aplikace: nastavíme runtime materiály tak, aby
+   čtly z zapečené lightmapy místo světel. */
+
+function applyBakedLighting() {
+  setProgress(0.75, 'aplikace zapečeného světla…');
+
+  const lightTex = bakeGroundLightmap();
+
+  // Aplikujeme lightmap na povrchy (asfalt, dlažba, tráva, červený pruh)
+  matRoad.map = lightTex.clone();
+  matRoad.map.needsUpdate = true;
+  matRoad.map.repeat.set(1, 1);
+
+  matPave.map = lightTex.clone();
+  matPave.map.needsUpdate = true;
+  matPave.map.repeat.set(1, 1);
+
+  // Ale chceme zachovat původní texturu! Použijeme multi-texture přístup:
+  // Vytvoříme nový MeshBasicMaterial, jehož map = původní textura,
+  // a světlo zapečeme do emissiveMap.
+
+  // → Lepší: kombinujeme do canvasu
+  const combinedRoad = combineTextures(TEX.road, lightTex, 'multiply');
+  matRoad.map = combinedRoad;
+  matRoad.map.needsUpdate = true;
+
+  const combinedPave = combineTextures(TEX.pave, lightTex, 'multiply');
+  matPave.map = combinedPave;
+  matPave.map.needsUpdate = true;
+
+  // Grass – stačí lehce ztmavit okraje
+  const combinedGrass = combineTextures(TEX.grass, lightTex, 'multiply');
+  matGrass.map = combinedGrass;
+  matGrass.map.needsUpdate = true;
+
+  // Červený pruh – jen ztmavení v rozích
+  const redCanvas = cv(64, 128);
+  const rg = redCanvas.getContext('2d');
+  rg.fillStyle = '#8a3228'; rg.fillRect(0, 0, 64, 128);
+  const redTex = makeTex(redCanvas, 1, 50);
+  matRed.map = redTex;
+  matRed.color.setHex(0xffffff);
+}
+
+/* Pomocná funkce: zkombinuje dvě textury (canvas) násobením */
+function combineTextures(texA, texB, mode = 'multiply') {
+  const w = 512, h = 1024;
+  const c = cv(w, h);
+  const g = c.getContext('2d');
+  // texA jako base
+  drawTexToCanvas(g, texA, w, h);
+  g.globalCompositeOperation = mode === 'multiply' ? 'multiply' : 'source-over';
+  g.globalAlpha = 0.9;
+  drawTexToCanvas(g, texB, w, h);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1.0;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+
+/* Nakreslí Three.js texturu (CanvasTexture) do canvasu */
+function drawTexToCanvas(g, tex, w, h) {
+  if (!tex || !tex.image) return;
+  try {
+    g.drawImage(tex.image, 0, 0, w, h);
+  } catch(e) {
+    // fallback – šedá
+    g.fillStyle = '#888'; g.fillRect(0, 0, w, h);
+  }
+}
+
+/* 13.5 Pečení emissive map pro výkladce a rozsvícená okna
+   (aby i na MeshBasicMaterialu vypadaly jako svítící) */
+function bakeEmissiveIntoFacades() {
+  // Projdeme scénu, najdeme meshe s userData.emissiveBake,
+  // a aplikujeme jim emissive barvu. (MeshBasicMaterial emissive nemá,
+  //  takže barvu "zapečeme" přímo změnou barvy materiálu.)
+  BUILD_RESULT.staticScene.traverse(o => {
+    if (o.isMesh && o.userData.emissiveBake) {
+      const hex = o.userData.emissiveBake;
+      if (o.material) {
+        // Fake emissive pro MeshBasicMaterial: změníme barvu na světlou
+        const c = new THREE.Color(hex);
+        o.material.color.copy(c);
+      }
+    }
+  });
+}
+
+/* ============================================================
+   14. HLAVNÍ BAKE SEKVENCE
+   ============================================================ */
+async function bakeAll() {
+  setProgress(0.05, 'inicializace…');
+  await new Promise(r => setTimeout(r, 30));
+
+  // 1. Fotky
+  setProgress(0.15, 'načítání fotek…');
+  await loadPhotos();
+
+  // 2. Geometrie
+  setProgress(0.35, 'stavba geometrie…');
+  buildStaticScene();
+
+  // Dynamická scéna – listí stromů
+  for (let z = -P.L/2 + 8; z < P.L/2; z += 16) {
+    buildTree(BUILD_RESULT.dynamicScene, 0, z, 0.9 + Math.random()*0.2, true);
+  }
+  for (const side of [-1, 1]) {
+    for (let z = -P.L/2 + 14; z < P.L/2; z += 14) {
+      const nearStop = BUS_STOPS.some(b => b.side === side && Math.abs(b.z - z) < 9);
+      if (nearStop) continue;
+      buildTree(BUILD_RESULT.dynamicScene, side * (P.redOut + 2.5), z,
+                0.85 + Math.random()*0.25, true);
+    }
+  }
+
+  // 3. Reflection cubemap
+  await bakeReflections();
+  makeGlassMats();
+
+  // 4. Lightmap
+  applyBakedLighting();
+
+  // 5. Emissive
+  bakeEmissiveIntoFacades();
+
+  setProgress(0.95, 'dokončuji…');
+  await new Promise(r => setTimeout(r, 100));
+
+  setProgress(1.0, 'hotovo');
+  document.getElementById('bake').textContent = 'bake: ✓ hotovo';
+
+  // Skryjeme loading
+  setTimeout(() => {
+    const el = document.getElementById('load');
+    el.style.transition = 'opacity .4s';
+    el.style.opacity = '0';
+    setTimeout(() => el.style.display = 'none', 450);
+  }, 400);
+}
+
+/* ============================================================
+   15. POHLEDY
+   ============================================================ */
+const VIEWS = [
+  { pos: [2.5, 2.4, 60],  target: [0, 2.2, -140] },
+  { pos: [10, 2.0, 15],   target: [0, 1.5, -6] },
+  { pos: [P.walkOut - 2.5, 1.7, -30], target: [P.walkOut - 2.5, 2.5, 60] },
+  { pos: [0, 4, 20],      target: [-P.walkOut, 5, 20] },
+  { pos: [P.roadIn + 1.5, 3.5, -10], target: [P.walkOut - 1, 2.2, -30] },
+  { pos: [-P.roadIn - 1.0, 1.8, -30], target: [-P.walkOut, 1.6, -30] },
+  { pos: [180, 150, 220], target: [0, 0, 0] }
+];
+function setView(i) {
+  const v = VIEWS[i];
+  camera.position.set(...v.pos);
+  controls.target.set(...v.target);
+  controls.update();
+}
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 1.0;
+controls.maxDistance = 600;
+controls.rotateSpeed = 0.55;
+controls.target.set(0, 2, -100);
+
+/* ============================================================
+   16. FILM SHADER (jediný zbylý postprocess)
+   ============================================================ */
+const filmCanvas = cv(1, 1);
+const filmQuadScene = new THREE.Scene();
+const filmQuadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const filmUniforms = {
+  tDiffuse:    { value: null },
+  uTime:       { value: 0 },
+  uAberration: { value: 0.0018 },
+  uGrain:      { value: 0.045 },
+  uVignette:   { value: 0.32 },
+  uContrast:   { value: 1.05 },
+  uSaturation: { value: 1.06 },
+  uGrainOn:    { value: 1.0 }
+};
+const filmMat = new THREE.ShaderMaterial({
+  uniforms: filmUniforms,
+  vertexShader: `
+    varying vec2 vUv;
+    void main(){
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float uTime, uAberration, uGrain, uVignette, uContrast, uSaturation, uGrainOn;
+    varying vec2 vUv;
+    float rand(vec2 co){ return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453); }
+    void main(){
+      vec2 uv = vUv;
+      vec2 c = uv - 0.5;
+      float r2 = dot(c, c);
+      float ab = uAberration * (1.0 + r2 * 5.0);
+      vec3 col;
+      col.r = texture2D(tDiffuse, uv + c * ab).r;
+      col.g = texture2D(tDiffuse, uv).g;
+      col.b = texture2D(tDiffuse, uv - c * ab).b;
+      col = (col - 0.5) * uContrast + 0.5;
+      float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = mix(vec3(l), col, uSaturation);
+      float g = rand(uv * 1024.0 + uTime * 90.0) - 0.5;
+      col += g * uGrain * uGrainOn;
+      float v = 1.0 - smoothstep(0.35, 0.9, length(c)) * uVignette;
+      col *= v;
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+  depthTest: false,
+  depthWrite: false
+});
+const filmQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), filmMat);
+filmQuadScene.add(filmQuad);
+
+/* ============================================================
+   17. RENDER PIPELINE (bez světel, jen finální shader)
+   ============================================================ */
+const rtSize = new THREE.Vector2(renderWidth, renderHeight);
+let rtA = new THREE.WebGLRenderTarget(renderWidth, renderHeight, {
+  minFilter: THREE.LinearFilter,
+  magFilter: THREE.LinearFilter,
+  format: THREE.RGBAFormat,
+  type: THREE.HalfFloatType,
+  depthBuffer: true,
+  stencilBuffer: false
+});
+
+/* ============================================================
+   18. RENDER LOOP
+   ============================================================ */
+let lastTime = performance.now();
+let fpsAcc = 0, fpsFrames = 0;
+const fpsEl = document.getElementById('fps');
+const resEl = document.getElementById('res');
+const modeEl = document.getElementById('mode');
+
+modeEl.textContent = 'bake: runtime bez světel';
+
+renderer.setAnimationLoop(() => {
+  const now = performance.now();
+  const t = now * 0.001;
+
+  fpsFrames++;
+  fpsAcc += now - lastTime;
+  if (fpsAcc > 500) {
+    fpsEl.textContent = Math.round(fpsFrames * 1000 / fpsAcc);
+    fpsFrames = 0;
+    fpsAcc = 0;
+  }
+  lastTime = now;
+
+  // Listí
+  const leaves = BUILD_RESULT.leafMeshes;
+  for (let i = 0; i < leaves.length; i++) {
+    const leaf = leaves[i];
+    leaf.rotation.z = Math.sin(t * 0.55 + leaf.position.z * 0.15) * 0.018;
+    leaf.rotation.x = Math.cos(t * 0.42 + leaf.position.x * 0.15) * 0.014;
+  }
+
+  controls.update();
+
+  // 1. Render scény do RT (bez postprocessingu)
+  renderer.setRenderTarget(rtA);
+  renderer.render(scene, camera);
+
+  // 2. Film shader
+  filmUniforms.tDiffuse.value = rtA.texture;
+  filmUniforms.uTime.value = t;
+  renderer.setRenderTarget(null);
+  renderer.render(filmQuadScene, filmQuadCam);
+
+  if (!resEl.textContent) {
+    resEl.textContent = renderWidth + '×' + renderHeight;
+  }
+});
+
+/* ============================================================
+   19. RESIZE
+   ============================================================ */
+function onResize() {
+  renderHeight = pickRenderHeight();
+  renderWidth = Math.round(renderHeight * innerWidth / innerHeight);
+  renderer.setSize(renderWidth, renderHeight, false);
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+  camera.aspect = renderWidth / renderHeight;
+  camera.updateProjectionMatrix();
+
+  rtA.setSize(renderWidth, renderHeight);
+
+  const el = document.getElementById('res');
+  if (el) el.textContent = renderWidth + '×' + renderHeight;
+}
+addEventListener('resize', onResize);
+
+/* ============================================================
+   20. UI
+   ============================================================ */
+document.querySelectorAll('#ui button[data-v]').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('#ui button[data-v]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    setView(+b.dataset.v);
+  };
+});
+document.querySelector('#ui button[data-v]').classList.add('active');
+setView(0);
+
+document.getElementById('opt-grain').onchange = e => {
+  filmUniforms.uGrainOn.value = e.target.checked ? 1.0 : 0.0;
+};
+document.getElementById('opt-vig').onchange = e => {
+  filmUniforms.uVignette.value = e.target.checked ? 0.32 : 0.0;
+};
+document.getElementById('opt-refl').onchange = e => {
+  if (matGlassShop) {
+    const env = e.target.checked ? reflectionCube : null;
+    matGlassShop.envMap = env;
+    matGlassShelter.envMap = env;
+    matGlassWindow.envMap = env;
+    matGlassShop.needsUpdate = true;
+    matGlassShelter.needsUpdate = true;
+    matGlassWindow.needsUpdate = true;
+  }
+};
+
+/* ============================================================
+   START
+   ============================================================ */
+document.getElementById('gpu')?.remove?.();
+const gpuInfo = document.createElement('div');
+gpuInfo.id = 'gpu';
+gpuInfo.className = 'dim';
+gpuInfo.textContent = GPU.name.slice(0, 22);
+document.getElementById('perf').appendChild(gpuInfo);
+
+bakeAll().catch(err => {
+  console.error(err);
+  document.getElementById('load-status').textContent = 'chyba: ' + err.message;
+});
+</script>
+</body>
+</html>

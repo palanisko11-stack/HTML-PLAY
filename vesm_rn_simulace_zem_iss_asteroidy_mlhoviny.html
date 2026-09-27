@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Interaktivní 3D vesmír — Země, Měsíc, ISS, Pás asteroidů a mlhoviny (Three.js)">
+  <title>Vesmír: Země, ISS, Asteroidy a Mlhoviny</title>
+  
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    #earth-container {
+      position: fixed;
+      inset: 0;
+      cursor: grab;
+    }
+
+    #earth-container:active {
+      cursor: grabbing;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Filmová vinětace pro zaměření pozornosti do středu */
+    #vignette {
+      position: fixed;
+      inset: 0;
+      z-index: 4;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.65) 100%);
+      mix-blend-mode: multiply;
+    }
+
+    /* Overlay pro načítání textur a modelů */
+    #overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: #04060a;
+      color: #dfe8f2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      transition: opacity 0.8s ease, visibility 0.8s;
+    }
+    #overlay.hidden { 
+      opacity: 0; 
+      visibility: hidden;
+    }
+    #overlay-title {
+      font-size: 24px;
+      font-weight: 300;
+      letter-spacing: 2px;
+      margin-bottom: -4px;
+    }
+    #overlay-msg {
+      font-size: 14px;
+      color: #8a9bb3;
+    }
+    #overlay .bar {
+      width: 280px;
+      height: 4px;
+      background: #16202c;
+      border-radius: 2px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+    }
+    #overlay .bar i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4a9eff, #9d4edd);
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+    }
+    .err { color: #ff5252 !important; }
+
+    /* Nápověda a UI elementy */
+    #ui-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    #hint {
+      position: absolute;
+      left: 20px;
+      bottom: 20px;
+      color: #7f8fa3;
+      font-size: 13px;
+      line-height: 1.6;
+      opacity: 0.8;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+    #hint b { color: #fff; font-weight: normal; }
+
+    #toast {
+      position: absolute;
+      left: 50%;
+      bottom: 30px;
+      transform: translateX(-50%) translateY(20px);
+      background: rgba(15, 23, 34, 0.9);
+      backdrop-filter: blur(4px);
+      color: #dfe8f2;
+      border: 1px solid #2a3a4d;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 14px;
+      opacity: 0;
+      transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    #toast.show { 
+      opacity: 1; 
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+  
+  <main id="earth-container"></main>
+  <div id="vignette"></div>
+
+  <div id="overlay">
+    <div id="overlay-title">VESMÍRNÁ SIMULACE</div>
+    <div id="overlay-msg">Generování mlhovin a asteroidů...</div>
+    <div class="bar"><i id="overlay-bar"></i></div>
+  </div>
+  
+  <div id="ui-layer">
+    <div id="hint">
+      <b>Myš/Dotyk:</b> Rotace kamery<br>
+      <b>Kolečko:</b> Přiblížení (Zoom)<br>
+      <b>Mezerník:</b> Pauza automatické rotace
+    </div>
+    <div id="toast" role="status"></div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // --- DOM elementy a UI ---
+    const container = document.getElementById('earth-container');
+    const overlay = document.getElementById('overlay');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const overlayBar = document.getElementById('overlay-bar');
+    const toastEl = document.getElementById('toast');
+
+    let toastTimer = null;
+    function showToast(msg, ms = 3000) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+    }
+
+    // --- Základní parametry scény ---
+    const EARTH_RADIUS = 1;
+    const MOON_DIST = 2.8;
+    const SUN_DIST = 15; // Zmenšeno pro lepší nasvícení mlhovin a asteroidů, zachovává směrovost
+    
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x020305, 1); // Velmi tmavá modro-černá
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    container.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    // Vzdálená mlha pro pocit hloubky ve vesmíru
+    scene.fog = new THREE.FogExp2(0x020305, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0.8, 3.8);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.04;
+    controls.enablePan = false;
+    controls.minDistance = 1.25;
+    controls.maxDistance = 12;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.3;
+
+    // Globální systém Země, který bude obíhat kolem Slunce
+    const earthSystem = new THREE.Group();
+    earthSystem.position.set(SUN_DIST, 0, 0); // Počáteční pozice
+    scene.add(earthSystem);
+
+    // Aktualizace počáteční pozice kamery, aby plynule sledovala Zemi
+    camera.position.set(SUN_DIST, 0.8, SUN_DIST + 3.8);
+    controls.target.copy(earthSystem.position);
+
+    const sunDir = new THREE.Vector3(-1, 0, 0).normalize();
+    const sunLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    sunLight.position.set(0, 0, 0); // Slunce je pevně uprostřed (0,0,0)
+    sunLight.target = earthSystem;  // Světlo vždy míří na Zemi
+    scene.add(sunLight);
+    
+    // Ambientní světlo, aby objekty ve stínu nebyly absolutně černé
+    const ambientLight = new THREE.AmbientLight(0x1a2639, 0.3);
+    scene.add(ambientLight);
+
+    // --- Procedurální Textury a Fallbacky ---
+    function makeFallback(colorHex) {
+      const c = document.createElement('canvas'); c.width = c.height = 2;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = colorHex; ctx.fillRect(0, 0, 2, 2);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    }
+
+    const earthUniforms = {
+      dayMap:      { value: makeFallback('#1c3f6e') },
+      nightMap:    { value: makeFallback('#020308') },
+      cloudMap:    { value: makeFallback('#000000') },
+      waterMap:    { value: makeFallback('#000000') },
+      heightMap:   { value: makeFallback('#808080') },
+      sunDir:      { value: sunDir },
+      cloudOffset: { value: 0 },
+    };
+
+    const earthMaterial = new THREE.ShaderMaterial({
+      uniforms: earthUniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormalW;
+        varying vec3 vPosW;
+        void main() {
+          vUv = uv;
+          vNormalW = normalize(mat3(modelMatrix) * normal);
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vPosW = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D dayMap;
+        uniform sampler2D nightMap;
+        uniform sampler2D cloudMap;
+        uniform sampler2D waterMap;
+        uniform sampler2D heightMap;
+        uniform vec3 sunDir;
+        uniform float cloudOffset;
+        varying vec2 vUv;
+        varying vec3 vNormalW;
+        varying vec3 vPosW;
+
+        void main() {
+          vec3 n = normalize(vNormalW);
+          vec3 viewDir = normalize(cameraPosition - vPosW);
+
+          // Bump mapping
+          float e = 0.002;
+          float hC = texture2D(heightMap, vUv).r;
+          float hX = texture2D(heightMap, vUv + vec2(e, 0.0)).r;
+          float hY = texture2D(heightMap, vUv + vec2(0.0, e)).r;
+          vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), n) + vec3(1e-4));
+          vec3 bitangent = normalize(cross(n, tangent));
+          vec3 nBump = normalize(n - tangent * (hX - hC) * 1.5 + bitangent * (hY - hC) * 1.5);
+
+          float sd = dot(n, sunDir);
+          float sdBump = dot(nBump, sunDir);
+
+          vec3 day = texture2D(dayMap, vUv).rgb;
+          vec3 nightTex = texture2D(nightMap, vUv).rgb;
+          float water = texture2D(waterMap, vUv).r;
+
+          // Mraky
+          vec2 cloudUV = vec2(vUv.x - cloudOffset, vUv.y);
+          vec4 cloudSample = texture2D(cloudMap, cloudUV);
+          float cloudDensity = max(cloudSample.a, dot(cloudSample.rgb, vec3(0.333)));
+
+          // Den
+          float lambert = clamp(sdBump, 0.0, 1.0);
+          vec3 dayCol = day * (0.15 + 1.1 * pow(lambert, 0.8));
+          dayCol *= mix(1.0, 0.5, cloudDensity * clamp(sd * 3.0, 0.0, 1.0)); // stín mraků
+
+          // Odlesky slunce na vodě
+          vec3 halfDir = normalize(sunDir + viewDir);
+          float specAngle = clamp(dot(nBump, halfDir), 0.0, 1.0);
+          float spec = pow(specAngle, 100.0) * water * clamp(sd * 5.0, 0.0, 1.0);
+          dayCol += vec3(1.0, 0.95, 0.8) * spec * 1.5;
+
+          // Noc (města)
+          vec3 city = nightTex * vec3(1.0, 0.85, 0.6) * 2.5;
+          vec3 nightCol = city + day * vec3(0.02, 0.03, 0.06); // Zbytkové světlo
+
+          // Terminátor (přechod den/noc)
+          float dayMix = smoothstep(-0.15, 0.25, sd);
+          vec3 color = mix(nightCol, dayCol, dayMix);
+
+          // Atmosférický okraj (Fresnel)
+          float fres = pow(1.0 - clamp(dot(viewDir, n), 0.0, 1.0), 3.0);
+          color += vec3(0.2, 0.5, 1.0) * fres * (0.1 + 0.4 * dayMix);
+
+          gl_FragColor = vec4(color, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `
+    });
+
+    const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 128, 128);
+    const earth = new THREE.Mesh(earthGeo, earthMaterial);
+    earthSystem.add(earth);
+
+    // Mraky (fyzická vrstva)
+    const clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(EARTH_RADIUS * 1.012, 128, 128),
+      new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.9, depthWrite: false })
+    );
+    earthSystem.add(clouds);
+
+    // Atmosféra (vnější záře)
+    const atmosMat = new THREE.ShaderMaterial({
+      uniforms: { sunDir: { value: sunDir } },
+      vertexShader: `
+        varying vec3 vNormalV; varying vec3 vNormalW;
+        void main() {
+          vNormalV = normalize(normalMatrix * normal);
+          vNormalW = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 sunDir;
+        varying vec3 vNormalV; varying vec3 vNormalW;
+        void main() {
+          float rim = clamp(-vNormalV.z, 0.0, 1.0);
+          float intensity = pow(rim, 2.5) * 1.5;
+          float sunFacing = 0.5 + 0.5 * dot(normalize(vNormalW), sunDir);
+          vec3 col = mix(vec3(0.05, 0.2, 0.8), vec3(0.4, 0.7, 1.0), sunFacing);
+          float twilight = exp(-pow(dot(normalize(vNormalW), sunDir) / 0.2, 2.0));
+          col = mix(col, vec3(1.0, 0.4, 0.1), twilight * 0.6);
+          gl_FragColor = vec4(col * intensity * (0.2 + 0.8 * sunFacing), 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+      side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS * 1.18, 64, 64), atmosMat);
+    earthSystem.add(atmosphere);
+
+    // Složíme jednoduchý 3D model ISS z geometrických tvarů, abychom nepotřebovali externí modely.
+    function bakeISSHull() {
+      const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#dddddd'; ctx.fillRect(0, 0, 64, 64);
+      ctx.fillStyle = '#999999';
+      for(let i=0; i<150; i++) ctx.fillRect(Math.random()*64, Math.random()*64, 2, 2);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    }
+    
+    function bakeISSSolarPanel() {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#051133'; ctx.fillRect(0, 0, 128, 128);
+      ctx.strokeStyle = '#4a9eff'; ctx.lineWidth = 2;
+      for(let i=0; i<=128; i+=16) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 128); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(128, i); ctx.stroke();
+      }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 1);
+      return t;
+    }
+
+    const iss = new THREE.Group();
+    
+    // Hlavní trup / moduly (bílý hliník s vypálenou texturou)
+    const moduleGeo = new THREE.CylinderGeometry(0.005, 0.005, 0.05, 8);
+    const moduleMat = new THREE.MeshStandardMaterial({ map: bakeISSHull(), metalness: 0.6, roughness: 0.4 });
+    const mainModule = new THREE.Mesh(moduleGeo, moduleMat);
+    mainModule.rotation.z = Math.PI / 2;
+    iss.add(mainModule);
+    
+    const crossModule = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.03, 8), moduleMat);
+    iss.add(crossModule);
+
+    // Hlavní příhradový nosník
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.002, 0.002), new THREE.MeshStandardMaterial({ color: 0x666666 }));
+    iss.add(truss);
+
+    // Solární panely (modré se zlatavým odleskem a vypálenou texturou mřížky)
+    const panelGeo = new THREE.PlaneGeometry(0.04, 0.015);
+    const panelMat = new THREE.MeshStandardMaterial({ 
+      map: bakeISSSolarPanel(), emissive: 0x010511, metalness: 0.9, roughness: 0.1, side: THREE.DoubleSide 
+    });
+    
+    const p1 = new THREE.Mesh(panelGeo, panelMat); p1.position.set(0.06, 0, 0); iss.add(p1);
+    const p2 = new THREE.Mesh(panelGeo, panelMat); p2.position.set(-0.06, 0, 0); iss.add(p2);
+    const p3 = new THREE.Mesh(panelGeo, panelMat); p3.position.set(0.11, 0, 0); iss.add(p3);
+    const p4 = new THREE.Mesh(panelGeo, panelMat); p4.position.set(-0.11, 0, 0); iss.add(p4);
+
+    // Měřítko záměrně zvětšeno, aby byla ISS z dálky vidět
+    iss.scale.setScalar(1.5);
+    earthSystem.add(iss);
+    let issAngle = 0;
+    const ISS_RADIUS = EARTH_RADIUS * 1.12; // Nízká orbita
+
+    function bakeParticleTexture() {
+      const c = document.createElement('canvas'); c.width = 32; c.height = 32;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(16,16,0, 16,16,16);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.2, 'rgba(200,200,220,0.8)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.fillRect(0,0,32,32);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const PARTICLE_COUNT = 60000;
+    const posArray = new Float32Array(PARTICLE_COUNT * 3);
+    const colArray = new Float32Array(PARTICLE_COUNT * 3);
+    const pColor = new THREE.Color();
+    
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      // Obří pás asteroidů a prachu obíhající centrální Slunce
+      const radius = 6 + Math.random() * 16; 
+      const yDist = (Math.random() - 0.5) * (Math.random() * 1.5); 
+      
+      posArray[i*3] = Math.cos(angle) * radius;
+      posArray[i*3+1] = yDist;
+      posArray[i*3+2] = Math.sin(angle) * radius;
+      
+      pColor.setHSL(0.05 + Math.random() * 0.1, Math.random() * 0.2, 0.3 + Math.random() * 0.5);
+      colArray[i*3] = pColor.r;
+      colArray[i*3+1] = pColor.g;
+      colArray[i*3+2] = pColor.b;
+    }
+    
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    particleGeo.setAttribute('color', new THREE.BufferAttribute(colArray, 3));
+    
+    const particleMat = new THREE.PointsMaterial({
+      size: 0.012, // Mikroskopické částice
+      map: bakeParticleTexture(),
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    
+    const particleBelt = new THREE.Points(particleGeo, particleMat);
+    particleBelt.rotation.x = 0.15;
+    particleBelt.rotation.z = 0.1;
+    scene.add(particleBelt);
+
+    // --- BAREVNÉ SHLUKY PLYNU (3D Mlhoviny) ---
+    function bakeGasTexture() {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+      const ctx = c.getContext('2d');
+      const g = ctx.createRadialGradient(64,64,0, 64,64,64);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+      g.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g; ctx.fillRect(0,0,128,128);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const CLUSTER_COUNT = 30; // Počet masivních shluků plynů
+    const PARTICLES_PER_CLUSTER = 150;
+    const TOTAL_GAS_PARTICLES = CLUSTER_COUNT * PARTICLES_PER_CLUSTER;
+    
+    const gasPos = new Float32Array(TOTAL_GAS_PARTICLES * 3);
+    const gasCol = new Float32Array(TOTAL_GAS_PARTICLES * 3);
+    const gasBaseColor = new THREE.Color();
+    
+    let gIdx = 0;
+    for (let c = 0; c < CLUSTER_COUNT; c++) {
+      // Pozice centra plynového shluku
+      const cAngle = Math.random() * Math.PI * 2;
+      const cRadius = 12 + Math.random() * 25; // Rozložení kolem Slunce
+      const cY = (Math.random() - 0.5) * 15;
+      
+      const cx = Math.cos(cAngle) * cRadius;
+      const cy = cY;
+      const cz = Math.sin(cAngle) * cRadius;
+      
+      // Zářivé vesmírné barvy (azurová, modrá, růžová, fialová)
+      const hue = Math.random() > 0.5 ? Math.random() * 0.2 + 0.5 : Math.random() * 0.2 + 0.8;
+      gasBaseColor.setHSL(hue, 1.0, 0.6);
+      
+      for (let i = 0; i < PARTICLES_PER_CLUSTER; i++) {
+        // Rozptyl částic plynu v rámci jednoho shluku
+        const ox = (Math.random() - 0.5) * 12;
+        const oy = (Math.random() - 0.5) * 12;
+        const oz = (Math.random() - 0.5) * 12;
+        
+        gasPos[gIdx*3] = cx + ox;
+        gasPos[gIdx*3+1] = cy + oy;
+        gasPos[gIdx*3+2] = cz + oz;
+        
+        // Lehká tonální odchylka pro hloubku barev
+        const variantColor = new THREE.Color().copy(gasBaseColor).offsetHSL((Math.random()-0.5)*0.1, 0, (Math.random()-0.5)*0.2);
+        gasCol[gIdx*3] = variantColor.r;
+        gasCol[gIdx*3+1] = variantColor.g;
+        gasCol[gIdx*3+2] = variantColor.b;
+        
+        gIdx++;
+      }
+    }
+    
+    const gasGeo = new THREE.BufferGeometry();
+    gasGeo.setAttribute('position', new THREE.BufferAttribute(gasPos, 3));
+    gasGeo.setAttribute('color', new THREE.BufferAttribute(gasCol, 3));
+    
+    const gasMat = new THREE.PointsMaterial({
+      size: 10.0, // Velké měkké flíčky pro volumetrický efekt
+      map: bakeGasTexture(),
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.04, // Extrémně nízká průhlednost (efekt se tvoří překrýváním vrstev)
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    
+    const gasClouds = new THREE.Points(gasGeo, gasMat);
+    gasClouds.rotation.x = 0.08;
+    gasClouds.rotation.z = -0.05;
+    scene.add(gasClouds);
+
+    function bakeEnvironment() {
+      const w = 2048, h = 1024;
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+
+      // Základ
+      ctx.fillStyle = '#020305';
+      ctx.fillRect(0, 0, w, h);
+
+      // Hvězdy
+      for (let i = 0; i < 4000; i++) {
+        const x = Math.random() * w, y = Math.random() * h;
+        const r = Math.random() * 1.2;
+        ctx.fillStyle = Math.random() > 0.8 ? '#fff' : (Math.random() > 0.4 ? '#aaccff' : '#ffddaa');
+        ctx.globalAlpha = Math.random() * 0.8 + 0.2;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Mlhoviny (Screen blending)
+      ctx.globalCompositeOperation = 'screen';
+      for (let i = 0; i < 15; i++) {
+        const x = Math.random() * w, y = Math.random() * h, r = 150 + Math.random() * 300;
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+        const isPink = Math.random() > 0.5;
+        grad.addColorStop(0, isPink ? 'rgba(200, 80, 255, 0.12)' : 'rgba(50, 180, 255, 0.12)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      return tex;
+    }
+
+    scene.background = bakeEnvironment();
+    scene.backgroundRotation = new THREE.Euler(0, 0, 0);
+
+    // Slunce (Zářící bod)
+    const sunCanvas = document.createElement('canvas'); sunCanvas.width = sunCanvas.height = 128;
+    const sCtx = sunCanvas.getContext('2d');
+    const sGrad = sCtx.createRadialGradient(64,64,0, 64,64,64);
+    sGrad.addColorStop(0, '#fff'); sGrad.addColorStop(0.2, '#fff7d6');
+    sGrad.addColorStop(0.5, 'rgba(255,200,100,0.4)'); sGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    sCtx.fillStyle = sGrad; sCtx.fillRect(0,0,128,128);
+    const sunTex = new THREE.CanvasTexture(sunCanvas); sunTex.colorSpace = THREE.SRGBColorSpace;
+    const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: sunTex, blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    sunSprite.scale.set(6, 6, 1); // Zvětšíme slunce, aby bylo uprostřed lépe vidět
+    scene.add(sunSprite);
+
+    // Měsíc
+    const moonGeo = new THREE.SphereGeometry(EARTH_RADIUS * 0.27, 64, 64);
+    const moonMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 1.0, metalness: 0.0 });
+    const moon = new THREE.Mesh(moonGeo, moonMat);
+    earthSystem.add(moon);
+    let moonAngle = Math.PI * 0.2;
+
+    const TEX_BASE = 'https://unpkg.com/three-globe/example/img/';
+    const loader = new THREE.TextureLoader();
+    loader.crossOrigin = 'anonymous';
+
+    const texToLoad = [
+      { key: 'dayMap', url: 'earth-blue-marble.jpg', color: true, target: earthUniforms },
+      { key: 'nightMap', url: 'earth-night.jpg', color: true, target: earthUniforms },
+      { key: 'waterMap', url: 'earth-water.png', color: false, target: earthUniforms },
+      { key: 'heightMap', url: 'earth-topology.png', color: false, target: earthUniforms },
+      { key: 'cloudMap', url: 'clouds.png', color: true, custom: (t) => { clouds.material.map = t; clouds.material.needsUpdate = true; earthUniforms.cloudMap.value = t; } }
+    ];
+
+    let loaded = 0;
+    overlayMsg.textContent = "Stahování textur Země s vysokým rozlišením...";
+
+    texToLoad.forEach(item => {
+      loader.load(TEX_BASE + item.url, (t) => {
+        t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        if (item.color) t.colorSpace = THREE.SRGBColorSpace;
+        
+        if (item.custom) item.custom(t);
+        else item.target[item.key].value = t;
+        
+        loaded++;
+        overlayBar.style.width = (loaded / texToLoad.length * 100) + '%';
+        if (loaded === texToLoad.length) {
+          overlay.classList.add('hidden');
+          setTimeout(() => showToast('Simulace plně načtena. Vítejte ve vesmíru!', 4000), 1000);
+        }
+      }, undefined, () => {
+        loaded++; // Pokračujeme i při chybě
+        if (loaded === texToLoad.length) overlay.classList.add('hidden');
+      });
+    });
+
+    // Záchrana, kdyby se textury stahovaly věčně
+    setTimeout(() => { if (loaded < texToLoad.length) overlay.classList.add('hidden'); }, 8000);
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        controls.autoRotate = !controls.autoRotate;
+        showToast(controls.autoRotate ? 'Kamera: Auto rotace spuštěna' : 'Kamera: Auto rotace pozastavena', 2000);
+      }
+    });
+
+    const clock = new THREE.Clock();
+    let earthOrbitAngle = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      // Omezení delty kvůli zásekům (když uživatel přepne tab)
+      const dt = Math.min(clock.getDelta(), 0.1); 
+
+      // 1. Oběh Země kolem Slunce (Heliocentrický model)
+      earthOrbitAngle += dt * 0.015; // Rychlost oběhu kolem slunce
+      earthSystem.position.set(
+        Math.cos(earthOrbitAngle) * SUN_DIST,
+        0,
+        Math.sin(earthOrbitAngle) * SUN_DIST
+      );
+
+      // Aktualizace směru ke Slunci pro shadery Země a atmosféry
+      sunDir.copy(earthSystem.position).negate().normalize();
+      
+      // Slunce je pevně uprostřed
+      sunSprite.position.set(0, 0, 0);
+
+      // 2. Rotace Země a drift mraků kolem vlastní osy
+      earth.rotation.y += dt * 0.02;
+      clouds.rotation.y += dt * 0.025; 
+      earthUniforms.cloudOffset.value = (clouds.rotation.y - earth.rotation.y) / (Math.PI*2);
+
+      // 3. Pohyb ISS (Nízká LEO orbita) v rámci zemského systému
+      issAngle += dt * 0.8;
+      iss.position.set(
+        Math.cos(issAngle) * ISS_RADIUS,
+        Math.sin(issAngle * 1.5) * 0.2,
+        Math.sin(issAngle) * ISS_RADIUS
+      );
+      const nextPos = new THREE.Vector3(
+        Math.cos(issAngle + 0.1) * ISS_RADIUS,
+        Math.sin((issAngle + 0.1) * 1.5) * 0.2,
+        Math.sin(issAngle + 0.1) * ISS_RADIUS
+      );
+      iss.lookAt(nextPos);
+      iss.rotateX(Math.PI/2); 
+
+      // 4. Oběh Měsíce kolem Země
+      moonAngle += dt * 0.05;
+      moon.position.set(
+        Math.cos(moonAngle) * MOON_DIST,
+        Math.sin(moonAngle * 0.2) * 0.4,
+        Math.sin(moonAngle) * MOON_DIST
+      );
+      moon.rotation.y += dt * 0.01;
+
+      // 5. Rotace makroskopického pásu částic, plynů a pozadí (kolem slunce)
+      particleBelt.rotation.y -= dt * 0.005;
+      gasClouds.rotation.y -= dt * 0.002; // Plyny driftují pomaleji
+      scene.backgroundRotation.y += dt * 0.001;
+
+      // 6. Dynamické sledování - Kamera automaticky cestuje se Zemí!
+      const deltaTarget = earthSystem.position.clone().sub(controls.target);
+      camera.position.add(deltaTarget);
+      controls.target.copy(earthSystem.position);
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    
+    // Spuštění animace
+    animate();
+  </script>
+</body>
+</html>

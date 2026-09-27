@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="cs" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GARGANTUA SCIENTIFIC — Accurate Black Hole Visualization</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        *,*::before,*::after{box-sizing:border-box}
+        body{font-family:'JetBrains Mono',monospace;background:#000001;overflow:hidden;margin:0;padding:0}
+        .orbitron{font-family:'Orbitron',sans-serif}
+        .scanlines::before{content:"";display:block;position:fixed;top:0;left:0;bottom:0;right:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,0)0px,rgba(0,0,0,0)2px,rgba(0,0,0,0.06)2px,rgba(0,0,0,0.06)3px);z-index:9999;pointer-events:none;opacity:.25}
+    </style>
+</head>
+<body class="h-full text-cyan-400 select-none scanlines">
+
+<!-- BOOT OVERLAY -->
+<div id="boot-overlay" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/98 p-6 text-center transition-all duration-1500">
+    <div class="max-w-2xl bg-black/80 backdrop-blur-xl rounded-3xl p-10 border border-cyan-500/20 shadow-2xl">
+        <div class="mb-6 flex justify-center">
+            <div class="w-20 h-20 rounded-full border-2 border-cyan-500/30 flex items-center justify-center animate-pulse">
+                <i class="fas fa-circle-nodes text-3xl text-cyan-400/70"></i>
+            </div>
+        </div>
+        <h1 class="orbitron text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-blue-400 to-purple-500 mb-2 tracking-widest uppercase">
+            GARGANTUA SCIENTIFIC
+        </h1>
+        <p class="text-[11px] text-cyan-400/60 orbitron mb-8 uppercase tracking-[4px] animate-pulse">
+            General Relativistic Ray-Tracer • Schwarzschild Metric
+        </p>
+        <div class="text-gray-400 text-xs leading-relaxed mb-8 font-mono text-left bg-black/60 p-5 rounded-xl border border-cyan-500/8 h-48 overflow-y-auto">
+            <span class="text-emerald-400">[OK]</span> SCHWARZSCHILD METRIC SOLVER v3.0<br>
+            <span class="text-emerald-400">[OK]</span> ISCO RADIUS: r_isco = 6GM/c²<br>
+            <span class="text-emerald-400">[OK]</span> PHOTON SPHERE: r_ph = 3GM/c²<br>
+            <span class="text-emerald-400">[OK]</span> EVENT HORIZON: r_s = 2GM/c²<br>
+            <span class="text-emerald-400">[OK]</span> DOPPLER BEAMING: I_obs/I_emit = [D(θ)]⁴<br>
+            <span class="text-emerald-400">[OK]</span> ACCRETION DISK: Novikov-Thorne Model<br>
+            <span class="text-emerald-400">[OK]</span> TIME DILATION: dτ/dt = √(1 - 2M/r)<br>
+            <span class="text-amber-400">[WARN]</span> TIDAL FORCES: Δa ≈ 2GM·Δr/r³<br>
+            <span class="text-emerald-400">[READY]</span> ALL SYSTEMS NOMINAL.
+        </div>
+        <button id="btn-boot" class="orbitron w-full py-5 px-10 bg-gradient-to-r from-cyan-500 via-blue-600 to-purple-600 text-white font-bold rounded-2xl shadow-lg hover:scale-[1.03] active:scale-95 transition-all duration-400 flex items-center justify-center gap-4 tracking-[3px] text-sm">
+            <i class="fas fa-power-off text-lg"></i>
+            INITIALIZE RELATIVISTIC ENGINE
+        </button>
+        <p class="text-[9px] text-gray-600 mt-4 italic">Click to start • Mouse: rotate/zoom • Space: warp</p>
+    </div>
+</div>
+
+<div id="canvas-container" class="absolute inset-0 z-0"></div>
+
+<script>
+// ============================================================
+//  GARGANTUA SCIENTIFIC — CLEAN FULLSCREEN VERSION
+// ============================================================
+
+const G = 6.674e-11, c = 299792458, M_sun = 1.989e30;
+
+function schwarzschildRadius(M_solar) { return 2 * G * M_solar * M_sun / (c * c); }
+function iscoRadius(M_solar, a_star) {
+    if (a_star === 0) return 6.0;
+    const Z1 = 1 + Math.pow(1 - a_star * a_star, 1/3) * (Math.pow(1 + a_star, 1/3) + Math.pow(1 - a_star, 1/3));
+    const Z2 = Math.sqrt(3 * a_star * a_star + Z1 * Z1);
+    return 3 + Z2 - Math.sqrt((3 - Z1) * (3 + Z1 + 2 * Z2));
+}
+function photonSphereRadius(M_solar, a_star) {
+    if (a_star === 0) return 3.0;
+    return 2 * (1 + Math.cos(2/3 * Math.acos(-a_star)));
+}
+function timeDilation(r_rs) { return Math.sqrt(Math.max(0, 1 - 1/r_rs)); }
+function orbitalVelocity(r_rs) { return Math.sqrt(1 / (2 * r_rs)); }
+function lorentzFactor(v_c) { return 1 / Math.sqrt(1 - v_c * v_c); }
+
+let scene, camera, renderer, controls, clock;
+let composer, bloomPass, lensDistortionPass;
+let blackHole, accretionDisk, accretionGlow, photonRing, backgroundStars, warpTunnel;
+let diskMaterial, warpTunnelMaterial, glowMaterial, photonRingMaterial;
+let particleSystem, particleGeo, particleMat;
+let currentWarpState = 0, warpTransition = 0, isWarping = false, shakeIntensity = 0;
+let isBooted = false, frameCount = 0, fpsTime = 0;
+let soundEngine = {};
+let currentMass = 10.0, currentSpin = 0.0;
+
+const AccretionDiskShader = {
+    uniforms: {
+        uTime: { value: 0 }, uInnerRadius: { value: 6.0 }, uOuterRadius: { value: 30.0 },
+        uColor: { value: new THREE.Color(0xff6611) }, uDensity: { value: 1.0 },
+        uDopplerBeaming: { value: 1.0 }, uWarpState: { value: 0.0 },
+        uAccretionRate: { value: 0.5 }, uInclination: { value: 1.3 }, uSpin: { value: 0.0 }
+    },
+    vertexShader: `
+        varying vec2 vUv; varying vec3 vLocalPosition; varying vec3 vWorldPosition; varying vec3 vNormal;
+        void main() {
+            vUv = uv; vLocalPosition = position; vNormal = normalize(normal);
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPos.xyz;
+            gl_Position = projectionMatrix * viewMatrix * worldPos;
+        }`,
+    fragmentShader: `
+        uniform float uTime, uInnerRadius, uOuterRadius, uDensity, uDopplerBeaming, uWarpState, uAccretionRate, uInclination, uSpin;
+        uniform vec3 uColor;
+        varying vec2 vUv; varying vec3 vLocalPosition; varying vec3 vWorldPosition; varying vec3 vNormal;
+        float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453123); }
+        float noise(vec2 p) {
+            vec2 i=floor(p); vec2 f=fract(p); vec2 u=f*f*(3.-2.*f);
+            return mix(mix(hash(i+vec2(0,0)),hash(i+vec2(1,0)),u.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y);
+        }
+        float fbm(vec2 p) { float v=0.,a=.5; for(int i=0;i<5;i++){ v+=a*noise(p); p*=2.2; a*=0.5; } return v; }
+        vec3 blackbody(float T) {
+            float t = T / 1000.0; vec3 col;
+            if (t < 6.0) { col = vec3(1.0, 0.05*t, 0.0); }
+            else if (t < 12.0) { col = vec3(1.0, 0.3+0.07*(t-6.0), 0.05*(t-6.0)); }
+            else { col = vec3(1.0, 0.7+0.025*(t-12.0), 0.3+0.05*(t-12.0)); }
+            float maxC = max(col.r, max(col.g, col.b));
+            if (maxC > 1.0) col /= maxC;
+            return col;
+        }
+        void main() {
+            float dist = length(vLocalPosition.xz);
+            if (dist < uInnerRadius || dist > uOuterRadius) discard;
+            float angle = atan(vLocalPosition.z, vLocalPosition.x);
+            float keplerOmega = pow(dist, -1.5);
+            float rotAngle = angle - uTime * keplerOmega * 3.0;
+            vec2 noiseUV = vec2(dist * 0.5 - uTime * 0.3, rotAngle * 1.5 + uTime * 0.05);
+            float gasDensity = fbm(noiseUV);
+            float turb = 1.0 + 0.5 * sin(dist * 1.2 - uTime * 0.6) * exp(-(dist - uInnerRadius) * 0.2);
+            gasDensity *= turb;
+            float normDist = (dist - uInnerRadius) / (uOuterRadius - uInnerRadius);
+            float tempProfile = pow(dist / uInnerRadius, -0.75);
+            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+            vec3 tangent = normalize(vec3(-vLocalPosition.z, 0.0, vLocalPosition.x));
+            float cosTheta = dot(tangent, viewDir);
+            float v_orb = 1.0 / sqrt(2.0 * dist);
+            float gamma = 1.0 / sqrt(1.0 - v_orb * v_orb);
+            float D = 1.0 / (gamma * (1.0 - v_orb * cosTheta));
+            float beaming = 1.0;
+            if (uDopplerBeaming > 0.5) beaming = pow(D, 4.0);
+            float z_grav = pow(1.0 - 1.0/dist, -0.5) - 1.0;
+            float redshiftFactor = 1.0 / (1.0 + z_grav);
+            float T_local = tempProfile * 1.2e7;
+            float T_observed = T_local * D * redshiftFactor;
+            vec3 hotColor = blackbody(T_observed * 0.0001);
+            vec3 warmColor = uColor;
+            vec3 coldColor = vec3(0.2, 0.05, 0.0);
+            vec3 finalColor = mix(coldColor, warmColor, tempProfile);
+            finalColor = mix(finalColor, hotColor, tempProfile * tempProfile);
+            float dopplerAsym = smoothstep(-0.3, 0.3, cosTheta);
+            finalColor = mix(finalColor * 0.4, finalColor * 1.8, dopplerAsym);
+            float alpha = gasDensity * (1.0 - normDist * 0.6) * tempProfile * 2.5;
+            alpha *= (1.0 - uWarpState * 0.9);
+            float flare = 0.0;
+            if (dist < uInnerRadius * 1.2) {
+                flare = 0.3 * pow(1.0 - (dist - uInnerRadius) / (uInnerRadius * 0.2), 2.0);
+                flare *= 0.5 + 0.5 * sin(uTime * 2.5 + dist * 3.0);
+            }
+            gl_FragColor = vec4(finalColor * (beaming * uDensity + flare), alpha);
+        }`
+};
+
+const PhotonRingShader = {
+    uniforms: { uTime: { value: 0 }, uRadius: { value: 3.0 }, uThickness: { value: 0.3 }, uIntensity: { value: 1.0 } },
+    vertexShader: `varying vec2 vUv; varying vec3 vLocalPosition; void main() { vUv = uv; vLocalPosition = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float uTime, uRadius, uThickness, uIntensity; varying vec3 vLocalPosition;
+        void main() {
+            float dist = length(vLocalPosition.xz);
+            float ringDist = abs(dist - uRadius);
+            float intensity = exp(-ringDist * ringDist / (uThickness * uThickness));
+            float angle = atan(vLocalPosition.z, vLocalPosition.x);
+            float modulator = 0.8 + 0.2 * sin(angle * 2.0 + uTime * 0.5);
+            vec3 color = vec3(1.0, 0.9, 0.7) * intensity * uIntensity * modulator;
+            float alpha = intensity * 0.6;
+            gl_FragColor = vec4(color, alpha);
+        }`
+};
+
+const GravitationalLensingShader = {
+    uniforms: { tDiffuse: { value: null }, uCenter: { value: new THREE.Vector2(0.5, 0.5) }, uRs: { value: 0.04 }, uWarpState: { value: 0.0 }, uTime: { value: 0.0 }, uChromaticAberration: { value: 1.0 } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 uCenter; uniform float uRs, uWarpState, uTime, uChromaticAberration; varying vec2 vUv;
+        void main() {
+            vec2 d = vUv - uCenter; float r = length(d);
+            float rs = uRs; float horizon = rs * 0.5;
+            if (r < horizon * 0.98) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+            float deflection = 2.0 * rs / max(r - horizon * 0.95, 0.0001);
+            float einsteinR = rs * 1.5;
+            vec2 distortedUv = uCenter + normalize(d) * (r - deflection * 0.7);
+            if (uWarpState > 0.01) {
+                float ws = uWarpState * 0.12; float a = atan(d.y, d.x);
+                distortedUv += vec2(cos(a + uTime * 2.0), sin(a + uTime * 2.0)) * ws * r;
+                float stretch = 1.0 + uWarpState * 0.06;
+                distortedUv = uCenter + (distortedUv - uCenter) * stretch;
+            }
+            float caStrength = uRs * 0.08 * uChromaticAberration;
+            vec3 col;
+            col.r = texture2D(tDiffuse, distortedUv + vec2(caStrength, 0.0)).r;
+            col.g = texture2D(tDiffuse, distortedUv).g;
+            col.b = texture2D(tDiffuse, distortedUv - vec2(caStrength, 0.0)).b;
+            float ringDist = abs(r - einsteinR);
+            float ring = exp(-ringDist * ringDist * 800.0) * 0.5;
+            col += vec3(ring * 0.8, ring * 0.5, ring * 0.2);
+            float ring2Dist = abs(r - einsteinR * 1.08);
+            float ring2 = exp(-ring2Dist * ring2Dist * 2000.0) * 0.2;
+            col += vec3(ring2 * 0.4, ring2 * 0.2, ring2 * 0.05);
+            gl_FragColor = vec4(col, 1.0);
+        }`
+};
+
+const GrainVignettePass = {
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uGrain: { value: 0.012 }, uVignetteDarkness: { value: 0.4 } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime, uGrain, uVignetteDarkness; varying vec2 vUv;
+        void main() { vec4 col = texture2D(tDiffuse, vUv); float g = (fract(sin(dot(vUv + uTime * 0.01, vec2(12.9898,78.233))) * 43758.5453) - 0.5) * uGrain; col.rgb += g; vec2 center = vUv - 0.5; float vignette = 1.0 - dot(center, center) * uVignetteDarkness * 2.5; col.rgb *= vignette; gl_FragColor = col; }`
+};
+
+function initSound() {
+    if (soundEngine.initialized) return;
+    soundEngine.volume = new Tone.Volume(-16).toDestination();
+    soundEngine.reverb = new Tone.Reverb({ decay: 8.0, wet: 0.4 }).connect(soundEngine.volume);
+    soundEngine.bassOsc1 = new Tone.Oscillator({ frequency: 42, type: "sawtooth", volume: -10 })
+        .connect(new Tone.Filter(80, "lowpass").connect(soundEngine.reverb));
+    soundEngine.bassOsc2 = new Tone.Oscillator({ frequency: 31, type: "sine", volume: -16 })
+        .connect(new Tone.Filter(50, "lowpass").connect(soundEngine.reverb));
+    soundEngine.noiseFilter = new Tone.Filter(250, "bandpass").connect(soundEngine.volume);
+    soundEngine.noiseEnv = new Tone.NoiseSynth({
+        noise: { type: "pink" },
+        envelope: { attack: 0.3, decay: 0.4, sustain: 0.6, release: 0.6 }
+    }).connect(soundEngine.noiseFilter);
+    soundEngine.synthRiser = new Tone.Synth({
+        oscillator: { type: "sawtooth" },
+        envelope: { attack: 5.0, decay: 2.0, sustain: 0.3, release: 3.0 }
+    }).connect(soundEngine.reverb);
+    soundEngine.synthRiser.volume.value = -99;
+    soundEngine.pulseOsc = new Tone.Oscillator({ frequency: 35, type: "sine", volume: -22 })
+        .connect(new Tone.Filter(35, "lowpass").connect(soundEngine.reverb));
+    soundEngine.bassOsc1.start();
+    soundEngine.bassOsc2.start();
+    soundEngine.noiseEnv.triggerAttack();
+    soundEngine.pulseOsc.start();
+    soundEngine.lfo = new Tone.LFO({ frequency: 0.06, type: "sine", min: -28, max: -12 });
+    soundEngine.lfo.connect(soundEngine.pulseOsc.volume);
+    soundEngine.lfo.start();
+    soundEngine.initialized = true;
+}
+
+function init3D() {
+    const container = document.getElementById('canvas-container');
+    clock = new THREE.Clock();
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000001, 0.0015);
+    camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.1, 1200);
+    camera.position.set(0, 8, 28);
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    container.appendChild(renderer.domElement);
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.04;
+    controls.maxDistance = 80;
+    controls.minDistance = 6;
+    controls.target.set(0, 0, 0);
+    controls.rotateSpeed = 0.5;
+    scene.add(new THREE.AmbientLight(0x0a0a1a, 0.25));
+    buildCosmos();
+    buildParticles();
+    setupPostProcessing();
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('keydown', onKeyDown);
+}
+
+function buildCosmos() {
+    const coreGeo = new THREE.SphereGeometry(3.0, 80, 80);
+    blackHole = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    scene.add(blackHole);
+
+    const ringGeo = new THREE.RingGeometry(2.8, 3.3, 160);
+    photonRingMaterial = new THREE.ShaderMaterial({
+        vertexShader: PhotonRingShader.vertexShader,
+        fragmentShader: PhotonRingShader.fragmentShader,
+        uniforms: THREE.UniformsUtils.clone(PhotonRingShader.uniforms),
+        transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+    });
+    photonRing = new THREE.Mesh(ringGeo, photonRingMaterial);
+    photonRing.rotation.x = Math.PI / 2;
+    scene.add(photonRing);
+
+    const diskGeo = new THREE.RingGeometry(6.0, 28.0, 200);
+    diskMaterial = new THREE.ShaderMaterial({
+        vertexShader: AccretionDiskShader.vertexShader,
+        fragmentShader: AccretionDiskShader.fragmentShader,
+        uniforms: THREE.UniformsUtils.clone(AccretionDiskShader.uniforms),
+        transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+    });
+    accretionDisk = new THREE.Mesh(diskGeo, diskMaterial);
+    accretionDisk.rotation.x = Math.PI / 2.05;
+    scene.add(accretionDisk);
+
+    const glowGeo = new THREE.SphereGeometry(3.2, 32, 32);
+    glowMaterial = new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.06, blending: THREE.AdditiveBlending });
+    accretionGlow = new THREE.Mesh(glowGeo, glowMaterial);
+    scene.add(accretionGlow);
+
+    const starCount = 30000;
+    const starGeo = new THREE.BufferGeometry();
+    const pos = new Float32Array(starCount * 3);
+    const col = new Float32Array(starCount * 3);
+    const sizes = new Float32Array(starCount);
+    const origDirs = [];
+    const origPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+        const r = 50 + Math.random() * 400;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+        pos[i*3]=x; pos[i*3+1]=y; pos[i*3+2]=z;
+        origPos[i*3]=x; origPos[i*3+1]=y; origPos[i*3+2]=z;
+        origDirs.push(new THREE.Vector3(x,y,z).normalize());
+        const dice = Math.random();
+        if (dice < 0.0001) { col[i*3]=0.5; col[i*3+1]=0.7; col[i*3+2]=1.0; }
+        else if (dice < 0.001) { col[i*3]=0.6; col[i*3+1]=0.75; col[i*3+2]=1.0; }
+        else if (dice < 0.01) { col[i*3]=0.8; col[i*3+1]=0.85; col[i*3+2]=1.0; }
+        else if (dice < 0.05) { col[i*3]=1.0; col[i*3+1]=0.95; col[i*3+2]=0.85; }
+        else if (dice < 0.15) { col[i*3]=1.0; col[i*3+1]=0.9; col[i*3+2]=0.6; }
+        else if (dice < 0.35) { col[i*3]=1.0; col[i*3+1]=0.7; col[i*3+2]=0.4; }
+        else { col[i*3]=1.0; col[i*3+1]=0.4; col[i*3+2]=0.25; }
+        sizes[i] = 0.6 + Math.random() * 2.5;
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    starGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    starGeo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 32;
+    const ctx = c.getContext('2d');
+    const grd = ctx.createRadialGradient(16,16,0,16,16,16);
+    grd.addColorStop(0,'rgba(255,255,255,1)');
+    grd.addColorStop(0.15,'rgba(220,240,255,0.9)');
+    grd.addColorStop(0.5,'rgba(100,180,255,0.3)');
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0,0,32,32);
+    const starTex = new THREE.CanvasTexture(c);
+    const starMat = new THREE.PointsMaterial({ size: 2.0, map: starTex, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true });
+    backgroundStars = new THREE.Points(starGeo, starMat);
+    backgroundStars.userData = { originalDirs: origDirs, originalPos: origPos };
+    scene.add(backgroundStars);
+
+    const tunnelGeo = new THREE.CylinderGeometry(10, 8, 160, 48, 48, true);
+    warpTunnelMaterial = new THREE.MeshBasicMaterial({ color: 0x00aaff, transparent: true, opacity: 0.0, side: THREE.DoubleSide, wireframe: true, blending: THREE.AdditiveBlending });
+    warpTunnel = new THREE.Mesh(tunnelGeo, warpTunnelMaterial);
+    warpTunnel.rotation.x = Math.PI / 2;
+    warpTunnel.position.set(0, 0, -70);
+    scene.add(warpTunnel);
+    const tunnelGeo2 = new THREE.CylinderGeometry(12, 10, 180, 36, 36, true);
+    const tunnelMat2 = warpTunnelMaterial.clone();
+    tunnelMat2.color.setHex(0x8844ff);
+    tunnelMat2.opacity = 0.0;
+    warpTunnel.userData.innerTunnel = new THREE.Mesh(tunnelGeo2, tunnelMat2);
+    warpTunnel.userData.innerTunnel.rotation.x = Math.PI / 2;
+    warpTunnel.userData.innerTunnel.position.set(0, 0, -80);
+    scene.add(warpTunnel.userData.innerTunnel);
+}
+
+function buildParticles() {
+    const count = 4000;
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(count * 3);
+    const vel = new Float32Array(count * 3);
+    const life = new Float32Array(count);
+    const sizes = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 5.5 + Math.random() * 18.0;
+        pos[i*3] = Math.cos(angle) * radius;
+        pos[i*3+1] = (Math.random() - 0.5) * 1.5;
+        pos[i*3+2] = Math.sin(angle) * radius;
+        vel[i*3] = -pos[i*3] * 0.004;
+        vel[i*3+1] = (Math.random() - 0.5) * 0.002;
+        vel[i*3+2] = -pos[i*3+2] * 0.004;
+        life[i] = Math.random();
+        sizes[i] = 0.02 + Math.random() * 0.1;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    const c = document.createElement('canvas');
+    c.width = 8; c.height = 8;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(4,4,0,4,4,4);
+    g.addColorStop(0,'rgba(255,200,100,1)');
+    g.addColorStop(0.5,'rgba(255,100,50,0.6)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,8,8);
+    const tex = new THREE.CanvasTexture(c);
+    particleMat = new THREE.PointsMaterial({ size: 0.1, map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, color: 0xff6633 });
+    particleGeo = geo;
+    particleSystem = new THREE.Points(geo, particleMat);
+    particleSystem.userData = { vel: vel, life: life };
+    scene.add(particleSystem);
+}
+
+function setupPostProcessing() {
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.1);
+    composer.addPass(bloomPass);
+    lensDistortionPass = new THREE.ShaderPass(GravitationalLensingShader);
+    composer.addPass(lensDistortionPass);
+    const grainPass = new THREE.ShaderPass(GrainVignettePass);
+    grainPass.renderToScreen = true;
+    composer.addPass(grainPass);
+}
+
+function onKeyDown(e) {
+    if (e.code === 'Space') {
+        e.preventDefault();
+        triggerWarpJump();
+    }
+}
+
+function triggerWarpJump() {
+    if (isWarping) return;
+    isWarping = true;
+    if (currentWarpState === 0) {
+        if (soundEngine.initialized) {
+            soundEngine.synthRiser.volume.value = -6;
+            soundEngine.synthRiser.triggerAttackRelease("G#1", "7s");
+            soundEngine.synthRiser.frequency.exponentialRampTo(1200, 6);
+        }
+        let charge = 0;
+        const ci = setInterval(() => {
+            charge += 3;
+            shakeIntensity = (charge / 100) * 0.6;
+            if (charge >= 100) {
+                clearInterval(ci);
+                shakeIntensity = 4.0;
+                setTimeout(() => { shakeIntensity = 0.04; }, 350);
+                if (soundEngine.initialized) {
+                    soundEngine.synthRiser.volume.value = -99;
+                    const boom = new Tone.FMWithFeedbackSynth().connect(soundEngine.reverb);
+                    boom.volume.value = 6;
+                    boom.triggerAttackRelease("C#1", "2.5s");
+                }
+                currentWarpState = 1;
+                isWarping = false;
+            }
+        }, 60);
+    } else {
+        if (soundEngine.initialized) {
+            soundEngine.bassOsc1.frequency.exponentialRampTo(42, 1.5);
+        }
+        setTimeout(() => {
+            currentWarpState = 0;
+            isWarping = false;
+            shakeIntensity = 0;
+        }, 1500);
+    }
+}
+
+function animate(now) {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    const time = clock.getElapsedTime();
+
+    frameCount++;
+    if (now - fpsTime >= 1000) {
+        fpsTime = now;
+        frameCount = 0;
+    }
+
+    accretionDisk.material.uniforms.uTime.value = time;
+    accretionDisk.material.uniforms.uAccretionRate.value = 0.5 + 0.3 * Math.sin(time * 0.3);
+    photonRing.material.uniforms.uTime.value = time;
+
+    if (currentWarpState === 1 && warpTransition < 1.0) {
+        warpTransition += delta * 0.7;
+    } else if (currentWarpState === 0 && warpTransition > 0.0) {
+        warpTransition -= delta * 1.8;
+    }
+    warpTransition = Math.max(0.0, Math.min(1.0, warpTransition));
+
+    lensDistortionPass.uniforms.uWarpState.value = warpTransition;
+    lensDistortionPass.uniforms.uTime.value = time;
+    accretionDisk.material.uniforms.uWarpState.value = warpTransition;
+
+    const posArr = backgroundStars.geometry.attributes.position.array;
+    const origP = backgroundStars.userData.originalPos;
+    for (let i = 0; i < backgroundStars.userData.originalDirs.length; i++) {
+        const str = 1.0 + warpTransition * 22.0;
+        posArr[i*3] = origP[i*3] * str;
+        posArr[i*3+1] = origP[i*3+1] * str;
+        posArr[i*3+2] = origP[i*3+2] * str;
+    }
+    backgroundStars.geometry.attributes.position.needsUpdate = true;
+
+    const sizesArr = backgroundStars.geometry.attributes.size;
+    if (sizesArr) {
+        const sz = sizesArr.array;
+        for (let i = 0; i < sz.length; i++) {
+            const twinkle = 0.7 + 0.3 * Math.sin(time * (0.5 + (i % 100) * 0.07) + (i * 0.01));
+            sz[i] = (0.6 + (i % 100) / 100 * 2.5) * twinkle;
+        }
+        sizesArr.needsUpdate = true;
+    }
+
+    if (warpTransition > 0.03) {
+        warpTunnelMaterial.opacity = warpTransition * 0.5;
+        warpTunnel.rotation.z += 0.008;
+        warpTunnel.position.z += delta * 180.0;
+        if (warpTunnel.position.z > 30) warpTunnel.position.z = -120;
+        const inner = warpTunnel.userData.innerTunnel;
+        if (inner) {
+            inner.material.opacity = warpTransition * 0.2;
+            inner.rotation.z -= 0.012;
+            inner.position.z += delta * 160.0;
+            if (inner.position.z > 30) inner.position.z = -130;
+        }
+    } else {
+        warpTunnelMaterial.opacity = 0.0;
+        if (warpTunnel.userData.innerTunnel) warpTunnel.userData.innerTunnel.material.opacity = 0.0;
+    }
+
+    if (shakeIntensity > 0.001) {
+        camera.position.x += (Math.random() - 0.5) * shakeIntensity;
+        camera.position.y += (Math.random() - 0.5) * shakeIntensity;
+        camera.position.z += (Math.random() - 0.5) * shakeIntensity;
+    }
+
+    blackHole.rotation.y += 0.003;
+    accretionGlow.rotation.y += 0.002;
+    photonRing.rotation.z += 0.001;
+
+    // Update particles
+    if (particleSystem) {
+        const pos = particleSystem.geometry.attributes.position.array;
+        const vel = particleSystem.userData.vel;
+        const count = pos.length / 3;
+        for (let i = 0; i < count; i++) {
+            const idx = i * 3;
+            const x = pos[idx], z = pos[idx+2];
+            const r = Math.sqrt(x*x + z*z);
+            const speed = 0.3 + 1.5 / (r + 0.5);
+            const accel = 1.0 + 3.0 / (r + 0.5);
+            pos[idx] += -x * delta * speed * accel + (Math.random() - 0.5) * 0.002;
+            pos[idx+1] += (Math.random() - 0.5) * delta * 0.1;
+            pos[idx+2] += -z * delta * speed * accel + (Math.random() - 0.5) * 0.002;
+            if (r < 3.5 || r > 20.0) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 5.5 + Math.random() * 11.0;
+                pos[idx] = Math.cos(angle) * radius;
+                pos[idx+1] = (Math.random() - 0.5) * 1.5;
+                pos[idx+2] = Math.sin(angle) * radius;
+            }
+        }
+        particleSystem.geometry.attributes.position.needsUpdate = true;
+        const warpColor = new THREE.Color().setHSL(0.6 + warpTransition * 0.3, 0.9, 0.5 + warpTransition * 0.3);
+        particleMat.color.copy(warpColor);
+        particleMat.size = 0.08 + warpTransition * 0.15;
+    }
+
+    controls.update();
+    composer.render();
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// BOOT
+document.getElementById('btn-boot').addEventListener('click', () => {
+    isBooted = true;
+    initSound();
+    const overlay = document.getElementById('boot-overlay');
+    overlay.classList.add('opacity-0');
+    setTimeout(() => { overlay.style.display = 'none'; }, 1000);
+});
+
+window.onload = function () {
+    init3D();
+    animate(0);
+};
+</script>
+</body>
+</html>

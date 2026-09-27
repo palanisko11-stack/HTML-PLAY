@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nekonečný 3D Svet - Polárna Búrka</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#050811;font-family:'Segoe UI',sans-serif}
+canvas{display:block}
+#ui{position:fixed;top:20px;left:20px;z-index:100;color:#fff;pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+#ui h1{font-size:22px;font-weight:200;letter-spacing:6px;text-transform:uppercase}
+#ui p{font-size:11px;opacity:.7;letter-spacing:2px;margin-top:4px}
+#hud{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:100;color:#fff;background:rgba(0,0,0,.5);backdrop-filter:blur(12px);padding:10px 22px;border-radius:30px;font-size:11px;letter-spacing:1.5px;border:1px solid rgba(255,255,255,.15)}
+#stats{position:fixed;top:20px;right:20px;z-index:100;color:#fff;font-size:11px;opacity:.85;text-align:right;letter-spacing:1px;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+#stats div{margin-bottom:3px}
+#crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.6);z-index:50;box-shadow:0 0 8px rgba(255,255,255,.4)}
+#loading{position:fixed;inset:0;background:#050811;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:1000;transition:opacity 1.2s ease}
+#loading h2{color:#fff;font-weight:200;letter-spacing:10px;text-transform:uppercase;font-size:20px}
+#loading .sub{color:#888;font-size:11px;letter-spacing:3px;margin-top:8px}
+#loading .bar{width:240px;height:1px;background:rgba(255,255,255,.15);margin-top:30px;overflow:hidden}
+#loading .bar-fill{height:100%;background:linear-gradient(90deg,#4facfe,#00f2fe);width:0%;transition:width .3s}
+#compass{position:fixed;bottom:20px;right:20px;width:70px;height:70px;border-radius:50%;border:1px solid rgba(255,255,255,.2);z-index:100;background:rgba(0,0,0,.4);backdrop-filter:blur(8px)}
+#compass canvas{width:100%;height:100%}
+
+#weather-hud{
+  position:fixed;top:90px;right:20px;z-index:100;color:#fff;
+  font-size:11px;letter-spacing:1.5px;text-align:right;
+  text-shadow:0 2px 8px rgba(0,0,0,.8);
+}
+#weather-hud .row{margin-bottom:6px;display:flex;justify-content:flex-end;align-items:center;gap:8px}
+#weather-hud .icon{font-size:16px}
+#weather-hud .label{opacity:.6;font-size:9px;text-transform:uppercase}
+#weather-hud .value{font-size:13px;font-weight:300}
+
+#weather-overlay{
+  position:fixed;inset:0;pointer-events:none;z-index:40;
+  background:radial-gradient(circle at center, transparent 30%, rgba(5,8,17,0.7) 90%);
+}
+
+#notification{
+  position:fixed;top:30%;left:50%;transform:translateX(-50%);
+  z-index:200;color:#fff;font-size:14px;letter-spacing:3px;
+  text-transform:uppercase;opacity:0;transition:opacity .5s;
+  text-shadow:0 2px 10px rgba(0,0,0,.9);pointer-events:none;
+}
+
+#info-panel{
+  position:fixed;bottom:70px;left:20px;z-index:100;color:#fff;
+  font-size:10px;letter-spacing:1.5px;opacity:.7;
+  text-shadow:0 2px 8px rgba(0,0,0,.8);
+}
+#info-panel .key{display:inline-block;padding:2px 6px;background:rgba(255,255,255,.15);border-radius:3px;margin:0 2px;font-family:monospace}
+
+#view-distance{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%);
+  z-index:100;color:#fff;font-size:12px;letter-spacing:2px;
+  text-shadow:0 2px 8px rgba(0,0,0,.8);
+  background:rgba(0,0,0,.4);padding:8px 16px;border-radius:20px;
+  backdrop-filter:blur(8px);
+}
+</style>
+</head>
+<body>
+<div id="loading">
+  <h2>POLÁRNA BÚRKA</h2>
+  <div class="sub">Generujem zasnežený terén...</div>
+  <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+</div>
+<div id="ui">
+  <h1>∞ Polárna Noc</h1>
+  <p>Extrémna Búrka · Nízky Dohľad · Sneh</p>
+</div>
+<div id="stats">
+  <div id="fps">60 FPS</div>
+  <div id="pos">X:0 Y:0 Z:0</div>
+  <div id="biome">BIOME: TUNDRA</div>
+  <div id="chunks">CHUNKY: 0</div>
+</div>
+
+<div id="view-distance">DOHĽAD: 350m (BÚRKA)</div>
+
+<div id="weather-hud">
+  <div class="row"><span class="icon" id="time-icon">🌙</span><span class="value" id="time-value">02:00</span></div>
+  <div class="row"><span class="label">TEPLOTA</span><span class="value" id="temp-value">-22°C</span></div>
+  <div class="row"><span class="label">LUCERNA</span><span class="value" id="lantern-status" style="color:#ffaa44">ZAPNUTÁ</span></div>
+  <div class="row"><span class="label">VETER</span><span class="value" id="wind-value">18 m/s</span></div>
+</div>
+
+<div id="hud">WASD pohyb · Myš rozhliadanie · SHIFT beh · MEDZERNÍK/C výška · <span style="color:#ffcc66">M</span> zvuk</div>
+<div id="crosshair"></div>
+<div id="compass"><canvas id="compass-canvas" width="140" height="140"></canvas></div>
+<div id="weather-overlay"></div>
+<div id="notification"></div>
+<div id="info-panel">
+  <div><span class="key">M</span> zapne/vypne zvuk</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const perm = new Uint8Array(512);
+const grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+(function initNoise(){
+  const p = [];
+  for(let i=0;i<256;i++) p[i]=i;
+  let seed = 42;
+  for(let i=255;i>0;i--){
+    seed = (seed * 9301 + 49297) % 233280;
+    const j = Math.floor((seed/233280) * (i+1));
+    [p[i],p[j]] = [p[j],p[i]];
+  }
+  for(let i=0;i<512;i++) perm[i] = p[i&255];
+})();
+
+function fade(t){return t*t*t*(t*(t*6-15)+10)}
+function lerp(a,b,t){return a+(b-a)*t}
+function grad(hash,x,y){const g=grad3[hash%12];return g[0]*x+g[1]*y}
+
+function perlin2(x,y){
+  const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+  x-=Math.floor(x); y-=Math.floor(y);
+  const u=fade(x), v=fade(y);
+  const A=perm[X]+Y, B=perm[X+1]+Y;
+  return lerp(lerp(grad(perm[A],x,y),grad(perm[B],x-1,y),u),
+              lerp(grad(perm[A+1],x,y-1),grad(perm[B+1],x-1,y-1),u),v);
+}
+
+function fbm(x,y,octaves=6,lacunarity=2,gain=0.5){
+  let sum=0, amp=1, freq=1, norm=0;
+  for(let i=0;i<octaves;i++){
+    sum += perlin2(x*freq,y*freq)*amp;
+    norm += amp;
+    amp *= gain;
+    freq *= lacunarity;
+  }
+  return sum/norm;
+}
+
+function ridged(x,y,octaves=5){
+  let sum=0, amp=1, freq=1, prev=1;
+  for(let i=0;i<octaves;i++){
+    let n = Math.abs(perlin2(x*freq,y*freq));
+    n = 1-n;
+    n = n*n;
+    sum += n*amp*prev;
+    prev = n;
+    amp *= 0.5;
+    freq *= 2.1;
+  }
+  return sum;
+}
+
+function warpedNoise(x,y){
+  const qx = fbm(x+0.0,y+1.7,4);
+  const qy = fbm(x+5.2,y+1.3,4);
+  return fbm(x+qx*4,y+qy*4,5);
+}
+
+function getHeight(x,z){
+  const continent = fbm(x*0.0008,z*0.0008,4);
+  const base = fbm(x*0.003,z*0.003,6,2,0.5);
+  const mountains = ridged(x*0.0025+10,z*0.0025+10,5);
+  const detail = fbm(x*0.02,z*0.02,3)*0.3;
+  const warp = warpedNoise(x*0.001,z*0.001);
+  let h = base*25 + mountains*40 + detail*3 + warp*15;
+  h += continent*30;
+  if(h < 2 && h > -2) h = h*0.5;
+  return h;
+}
+
+function getBiome(x,z,h){
+  return 'snow';
+}
+
+const timeSystem = {
+  timeOfDay: 0.82, // Permanent night
+  timeSpeed: 0,    // Frozen time
+  weatherState: 'snow',
+  windStrength: 0.9,
+  temperature: -22,
+  
+  getSunPosition(){
+    return new THREE.Vector3(0, -300, 200); // Below horizon (night)
+  },
+  
+  getSunIntensity(){
+    return 0.05;
+  },
+  
+  isNight(){
+    return true;
+  }
+};
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(72, innerWidth/innerHeight, 0.5, 1200);
+const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
+document.body.appendChild(renderer.domElement);
+
+// Dense polar night fog for reduced visibility
+scene.fog = new THREE.FogExp2(0x0a101f, 0.0045);
+
+// Stars
+const starsGeo = new THREE.BufferGeometry();
+const starPositions = [];
+const starSizes = [];
+for(let i=0;i<2000;i++){
+  const r = 1000;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(Math.random() * 2 - 1);
+  if(phi > Math.PI/2) continue;
+  starPositions.push(
+    r * Math.sin(phi) * Math.cos(theta),
+    r * Math.cos(phi),
+    r * Math.sin(phi) * Math.sin(theta)
+  );
+  starSizes.push(0.5 + Math.random() * 2.0);
+}
+starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+starsGeo.setAttribute('size', new THREE.Float32BufferAttribute(starSizes, 1));
+
+const starsMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  uniforms: { opacity: {value: 0.4} },
+  vertexShader:`
+    attribute float size;
+    void main(){
+      vec4 mvPos = modelViewMatrix * vec4(position,1.0);
+      gl_PointSize = size * (300.0 / -mvPos.z);
+      gl_Position = projectionMatrix * mvPos;
+    }`,
+  fragmentShader:`
+    uniform float opacity;
+    void main(){
+      vec2 c = gl_PointCoord - 0.5;
+      if(length(c) > 0.5) discard;
+      gl_FragColor = vec4(0.8, 0.9, 1.0, opacity);
+    }`
+});
+const stars = new THREE.Points(starsGeo, starsMat);
+scene.add(stars);
+
+// Moon (dim polar moon)
+const moonGeo = new THREE.SphereGeometry(25, 24, 24);
+const moonMat = new THREE.MeshBasicMaterial({color: 0x99badd});
+const moon = new THREE.Mesh(moonGeo, moonMat);
+moon.position.set(-200, 250, -400);
+scene.add(moon);
+
+const ambientLight = new THREE.AmbientLight(0x112244, 0.6);
+scene.add(ambientLight);
+
+const moonLight = new THREE.DirectionalLight(0x88bbff, 0.8);
+moonLight.position.set(-200, 300, -200);
+scene.add(moonLight);
+
+// Prenosná lucerna v ruke (bodové svetlo)
+const lanternLight = new THREE.PointLight(0xff9a3c, 2.5, 45, 2);
+scene.add(lanternLight);
+
+// Water Plane
+const waterGeo = new THREE.PlaneGeometry(10000, 10000, 32, 32);
+const waterMat = new THREE.MeshStandardMaterial({
+  color: 0x071528,
+  roughness: 0.2,
+  metalness: 0.6,
+  transparent: true,
+  opacity: 0.9
+});
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.rotation.x = -Math.PI/2;
+water.position.y = -0.5;
+scene.add(water);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.2, 0.4, 0.85);
+composer.addPass(bloomPass);
+
+const snowCount = 120000;
+const snowGeo = new THREE.BufferGeometry();
+const snowPositions = new Float32Array(snowCount * 3);
+const snowVelocities = new Float32Array(snowCount);
+const snowPhases = new Float32Array(snowCount);
+
+for(let i=0; i<snowCount*3; i+=3){
+  snowPositions[i] = (Math.random()-0.5)*400;
+  snowPositions[i+1] = Math.random()*200;
+  snowPositions[i+2] = (Math.random()-0.5)*400;
+  snowVelocities[i/3] = 18 + Math.random() * 25;
+  snowPhases[i/3] = Math.random() * Math.PI * 2;
+}
+snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+const snowMat = new THREE.PointsMaterial({
+  color: 0xffffff,
+  size: 0.06, // Jemnejšie a decentnejšie vločky
+  transparent: true,
+  opacity: 0.7,
+  depthWrite: false
+});
+const snowSystem = new THREE.Points(snowGeo, snowMat);
+scene.add(snowSystem);
+
+const CHUNK_SIZE = 64;
+const CHUNK_RES = 32;
+const VIEW_DISTANCE = 16; // Reduced view distance for heavy blizzard atmosphere
+const chunks = new Map();
+const materialCache = new Map();
+
+function getChunkMaterial(biome){
+  if(materialCache.has(biome)) return materialCache.get(biome);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xf2f5fa, // Pure snow white
+    roughness: 0.35,
+    metalness: 0.05,
+    flatShading: true
+  });
+  materialCache.set(biome, mat);
+  return mat;
+}
+
+function createChunk(cx, cz){
+  const key = `${cx},${cz}`;
+  if(chunks.has(key)) return;
+  
+  const geometry = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, CHUNK_RES, CHUNK_RES);
+  geometry.rotateX(-Math.PI/2);
+  
+  const pos = geometry.attributes.position;
+  
+  for(let i=0; i<pos.count; i++){
+    const wx = pos.getX(i) + cx * CHUNK_SIZE;
+    const wz = pos.getZ(i) + cz * CHUNK_SIZE;
+    const wy = getHeight(wx, wz);
+    pos.setY(i, wy);
+  }
+  geometry.computeVertexNormals();
+  
+  const mat = getChunkMaterial('snow');
+  const mesh = new THREE.Mesh(geometry, mat);
+  mesh.position.set(cx * CHUNK_SIZE + CHUNK_SIZE/2, 0, cz * CHUNK_SIZE + CHUNK_SIZE/2);
+  mesh.receiveShadow = true;
+  
+  scene.add(mesh);
+  chunks.set(key, {mesh, cx, cz});
+}
+
+let audioCtx = null;
+let audioEnabled = false;
+let windNode = null;
+
+function initAudio(){
+    if(audioCtx) return;
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const bufferSize = audioCtx.sampleRate * 2;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for(let i=0; i<bufferSize; i++){
+            data[i] = (Math.random() * 2 - 1) * 0.8;
+        }
+        windNode = audioCtx.createBufferSource();
+        windNode.buffer = buffer;
+        windNode.loop = true;
+        
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 320;
+        filter.Q.value = 2.0;
+
+        const gain = audioCtx.createGain();
+        gain.gain.value = 0.08;
+
+        windNode.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        windNode.start();
+    } catch(e) {}
+}
+
+const player = {
+    pos: new THREE.Vector3(0, 50, 0),
+    yaw: 0,
+    pitch: 0,
+    speed: 40,
+    sprintMultiplier: 2.2
+};
+
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if(e.code === 'KeyM') {
+        audioEnabled = !audioEnabled;
+        if(audioEnabled) { initAudio(); showNotification("BLIZZARD AUDIO ON"); }
+        else { if(audioCtx) audioCtx.suspend(); showNotification("BLIZZARD AUDIO OFF"); }
+    }
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+let isPointerLocked = false;
+renderer.domElement.addEventListener('click', () => {
+    if(!isPointerLocked) renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+    isPointerLocked = document.pointerLockElement === renderer.domElement;
+});
+document.addEventListener('mousemove', e => {
+    if(!isPointerLocked) return;
+    player.yaw -= e.movementX * 0.002;
+    player.pitch -= e.movementY * 0.002;
+    player.pitch = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, player.pitch));
+});
+
+const compassCanvas = document.getElementById('compass-canvas');
+const compassCtx = compassCanvas.getContext('2d');
+
+function drawCompass(){
+    compassCtx.clearRect(0,0,70,70);
+    compassCtx.save();
+    compassCtx.translate(35, 35);
+    compassCtx.rotate(player.yaw);
+    
+    compassCtx.beginPath();
+    compassCtx.moveTo(0, -25);
+    compassCtx.lineTo(-6, 0);
+    compassCtx.lineTo(0, -5);
+    compassCtx.fillStyle = '#88bbff';
+    compassCtx.fill();
+
+    compassCtx.beginPath();
+    compassCtx.moveTo(0, 25);
+    compassCtx.lineTo(-6, 0);
+    compassCtx.lineTo(0, 5);
+    compassCtx.fillStyle = '#cccccc';
+    compassCtx.fill();
+
+    compassCtx.restore();
+}
+
+function showNotification(text){
+    const notif = document.getElementById('notification');
+    notif.innerText = text;
+    notif.style.opacity = '1';
+    setTimeout(() => notif.style.opacity = '0', 2000);
+}
+
+function initChunksAroundPlayer(){
+    const pcx = Math.floor(camera.position.x / CHUNK_SIZE);
+    const pcz = Math.floor(camera.position.z / CHUNK_SIZE);
+    
+    const currentActive = new Set();
+    for(let x = -VIEW_DISTANCE; x <= VIEW_DISTANCE; x++){
+        for(let z = -VIEW_DISTANCE; z <= VIEW_DISTANCE; z++){
+            const cx = pcx + x;
+            const cz = pcz + z;
+            if(x*x + z*z <= VIEW_DISTANCE*VIEW_DISTANCE){
+                currentActive.add(`${cx},${cz}`);
+                createChunk(cx, cz);
+            }
+        }
+    }
+    
+    for(let [key, chunk] of chunks.entries()){
+        if(!currentActive.has(key)){
+            scene.remove(chunk.mesh);
+            chunk.mesh.geometry.dispose();
+            chunks.delete(key);
+        }
+    }
+}
+
+camera.position.set(0, 75, 0);
+initChunksAroundPlayer();
+document.getElementById('loading').style.opacity = '0';
+setTimeout(() => document.getElementById('loading').remove(), 1200);
+
+let clock = new THREE.Clock();
+let frameCount = 0;
+let fpsTimer = 0;
+
+function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.1, clock.getDelta());
+    const time = clock.getElapsedTime();
+    
+    const snowPositionsArr = snowSystem.geometry.attributes.position.array;
+    for(let i=0; i<snowCount; i++){
+        let idx = i * 3;
+        snowPositionsArr[idx+1] -= snowVelocities[i] * dt;
+        let phase = snowPhases[i];
+        snowPositionsArr[idx] += Math.sin(time * 3 + phase) * 0.4 + dt * 16;
+        snowPositionsArr[idx+2] += Math.cos(time * 2.5 + phase) * 0.4;
+        
+        let wx = snowPositionsArr[idx] + camera.position.x;
+        let wz = snowPositionsArr[idx+2] + camera.position.z;
+        let groundH = getHeight(wx, wz);
+        
+        let worldY = snowPositionsArr[idx+1] + camera.position.y;
+        
+        if(worldY <= groundH || snowPositionsArr[idx+1] < -60){
+            snowPositionsArr[idx+1] = 140 + Math.random() * 40;
+            snowPositionsArr[idx] = (Math.random() - 0.5) * 400;
+            snowPositionsArr[idx+2] = (Math.random() - 0.5) * 400;
+        }
+    }
+    snowSystem.geometry.attributes.position.needsUpdate = true;
+    snowSystem.position.copy(camera.position);
+
+    let speed = player.speed;
+    if(keys['ShiftLeft'] || keys['ShiftRight']) speed *= player.sprintMultiplier;
+    
+    const dir = new THREE.Vector3();
+    const forward = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw)).normalize();
+    const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw)).normalize();
+    
+    if(keys['KeyW']) dir.add(forward);
+    if(keys['KeyS']) dir.sub(forward);
+    if(keys['KeyD']) dir.add(right);
+    if(keys['KeyA']) dir.sub(right);
+    dir.normalize();
+    
+    camera.position.addScaledVector(dir, speed * dt);
+    
+    if(keys['Space']) camera.position.y += speed * dt;
+    if(keys['KeyC']) camera.position.y -= speed * dt;
+    
+    const terrainH = getHeight(camera.position.x, camera.position.z);
+    if(camera.position.y < terrainH + 4) {
+        camera.position.y = terrainH + 4;
+    }
+
+    // Aktualizácia pozície lucerny v ruke hráča (mierne vpravo a dole od kamery)
+    const lanternOffset = new THREE.Vector3(0.5, -0.6, -1.0);
+    lanternOffset.applyQuaternion(camera.quaternion);
+    lanternLight.position.copy(camera.position).add(lanternOffset);
+
+    const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+    euler.x = player.pitch;
+    euler.y = player.yaw;
+    camera.quaternion.setFromEuler(euler);
+
+    initChunksAroundPlayer();
+
+    frameCount++;
+    fpsTimer += dt;
+    if(fpsTimer >= 0.5){
+        document.getElementById('fps').innerText = `${Math.round(frameCount / fpsTimer)} FPS`;
+        frameCount = 0;
+        fpsTimer = 0;
+    }
+    
+    document.getElementById('pos').innerText = `X:${Math.round(camera.position.x)} Y:${Math.round(camera.position.y)} Z:${Math.round(camera.position.z)}`;
+    document.getElementById('biome').innerText = `BIOM: POLÁRNA TUNDRA`;
+    document.getElementById('chunks').innerText = `CHUNKY: ${chunks.size}`;
+
+    drawCompass();
+    composer.render();
+}
+
+animate();
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    composer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

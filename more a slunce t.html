@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nekonečný Oceán - Hyper-realismus</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@200;400;700&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Montserrat', sans-serif;
+            color: #fff;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        #ui-panel {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            z-index: 10;
+            background: rgba(5, 10, 15, 0.7);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+            width: 320px;
+            pointer-events: auto;
+        }
+
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #fff;
+        }
+        
+        h2 {
+            margin: 0 0 20px 0;
+            font-size: 0.7rem;
+            font-weight: 400;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #4facfe;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 10px;
+        }
+
+        .control-group { margin-bottom: 15px; }
+
+        label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            color: #888;
+        }
+
+        .value-display { color: #fff; font-weight: bold; }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+
+        input[type=range]:focus { outline: none; }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 2px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            background: #4facfe;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -5px;
+            box-shadow: 0 0 10px rgba(79, 172, 254, 0.5);
+            transition: transform 0.1s;
+        }
+
+        input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.5); }
+
+        #hint {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            text-align: center;
+            z-index: 10;
+            font-size: 0.7rem;
+            letter-spacing: 4px;
+            color: rgba(255, 255, 255, 0.3);
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+        
+        .vfx-warning {
+            font-size: 0.65rem;
+            color: #ff4b4b;
+            margin-top: 15px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        .toggle-btn {
+            background: rgba(79, 172, 254, 0.1);
+            border: 1px solid #4facfe;
+            color: #4facfe;
+            padding: 8px;
+            width: 100%;
+            margin-top: 10px;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+        }
+        
+        .toggle-btn:hover {
+            background: rgba(79, 172, 254, 0.3);
+        }
+
+        .toggle-btn.active {
+            background: rgba(79, 172, 254, 0.4);
+            color: #fff;
+            box-shadow: 0 0 10px rgba(79, 172, 254, 0.5);
+        }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="ui-panel">
+        <h1>Oceán</h1>
+        <h2>Fyzikální simulátor (Gerstner)</h2>
+        
+        <div class="control-group">
+            <label><span>Intenzita bouře (Výška)</span><span id="val-wave-height" class="value-display">1.0x</span></label>
+            <input type="range" id="wave-height" min="0.1" max="3.0" step="0.1" value="1.0">
+        </div>
+
+        <div class="control-group">
+            <label><span>Generování Pěny</span><span id="val-foam" class="value-display">Vysoké</span></label>
+            <input type="range" id="foam-amount" min="0" max="2" step="0.1" value="1.2">
+        </div>
+
+        <div class="control-group">
+            <label><span>Hustota deště</span><span id="val-rain" class="value-display">Extrémní</span></label>
+            <input type="range" id="rain-intensity" min="0" max="50000" step="1000" value="35000">
+        </div>
+
+        <div class="control-group" style="margin-bottom: 0;">
+            <label><span>Časový posun (Rychlost)</span><span id="val-speed" class="value-display">1.0x</span></label>
+            <input type="range" id="water-speed" min="0.1" max="3" step="0.1" value="1.0">
+        </div>
+        
+        <button id="btn-camera" class="toggle-btn">Pohled: Letecký (Volný)</button>
+        <button id="btn-lightning" class="toggle-btn active">Blesky: ZAPNUTO</button>
+
+        <div class="vfx-warning">POZOR: GPU INTENZIVNÍ VÝPOČTY</div>
+    </div>
+
+    <div id="hint">Levé tlačítko: Rozhlížení | Kolečko: Zoom kamery</div>
+
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { Water } from 'three/addons/objects/Water.js';
+        import { Sky } from 'three/addons/objects/Sky.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { FilmPass } from 'three/addons/postprocessing/FilmPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        let container, camera, scene, renderer, composer;
+        let controls, water, sky;
+        let rainSystem, rainGeo;
+        let flashLight;
+        let isBoatCamera = false;
+        let lightningActive = true;
+        
+        const params = {
+            waveMultiplier: 1.0,
+            foamThreshold: 1.2,
+            rainCount: 35000,
+            speed: 1.0,
+            sunElevation: -0.5 // Slunce pod obzorem pro temnou bouři
+        };
+
+        const clock = new THREE.Clock();
+
+        init();
+        animate();
+
+        function init() {
+            container = document.getElementById( 'canvas-container' );
+
+            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+            renderer.setPixelRatio( window.devicePixelRatio > 1 ? 1.5 : 1 ); // Optimalizace výkonu
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 0.8;
+            container.appendChild( renderer.domElement );
+
+            scene = new THREE.Scene();
+            // Extrémně hustá a tmavá mlha pro pocit bouře
+            scene.fog = new THREE.FogExp2(0x0a0c10, 0.0035);
+
+            camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 20000 );
+            camera.position.set( 0, 40, 150 );
+
+            // Vysoké rozlišení roviny pro výpočet vln
+            const waterGeometry = new THREE.PlaneGeometry( 4000, 4000, 512, 512 );
+
+            water = new Water(
+                waterGeometry,
+                {
+                    textureWidth: 512,
+                    textureHeight: 512,
+                    waterNormals: new THREE.TextureLoader().load( 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/waternormals.jpg', function ( texture ) {
+                        texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                    } ),
+                    sunDirection: new THREE.Vector3(0, 1, 0),
+                    sunColor: 0xffffff,
+                    waterColor: 0x000508, // Temná abyss barva
+                    distortionScale: 30.0,
+                    fog: true
+                }
+            );
+
+            // Modifikace zabudovaného shaderu pro Gerstnerovy vlny a pěnu
+            water.material.onBeforeCompile = function ( shader ) {
+                shader.uniforms.uWaveMultiplier = { value: params.waveMultiplier };
+                shader.uniforms.uFoamThreshold = { value: params.foamThreshold };
+                
+                // Přidání proměnných do Vertex Shaderu - vkládáme za definici času
+                shader.vertexShader = shader.vertexShader.replace(
+                    'uniform float time;',
+                    `
+                    uniform float time;
+                    uniform float uWaveMultiplier;
+                    varying float vElevation;
+                    varying float vSteepness;
+                    
+                    // Funkce pro výpočet jedné Gerstnerovy vlny (posunuje X, Y i Z)
+                    vec3 GerstnerWave(vec4 wave, vec3 p, inout vec3 tangent, inout vec3 binormal) {
+                        float steepness = wave.z;
+                        float wavelength = wave.w;
+                        float k = 2.0 * 3.14159 / wavelength;
+                        float c = sqrt(9.8 / k);
+                        vec2 d = normalize(wave.xy);
+                        float f = k * (dot(d, p.xz) - c * time);
+                        float a = steepness / k;
+                        
+                        // Výpočet tečen pro správné odrazy světla
+                        tangent += vec3(
+                            -d.x * d.x * (steepness * sin(f)),
+                            d.x * (steepness * cos(f)),
+                            -d.x * d.y * (steepness * sin(f))
+                        );
+                        binormal += vec3(
+                            -d.x * d.y * (steepness * sin(f)),
+                            d.y * (steepness * cos(f)),
+                            -d.y * d.y * (steepness * sin(f))
+                        );
+                        
+                        return vec3(
+                            d.x * (a * cos(f)),
+                            a * sin(f),
+                            d.y * (a * cos(f))
+                        );
+                    }
+                    `
+                );
+
+                // Aplikace vln na vertexy
+                shader.vertexShader = shader.vertexShader.replace(
+                    '#include <begin_vertex>',
+                    `
+                    vec3 gridPoint = position;
+                    vec3 tangent = vec3(1.0, 0.0, 0.0);
+                    vec3 binormal = vec3(0.0, 0.0, 1.0);
+                    vec3 p = gridPoint;
+                    
+                    // Komplexní složení 4 různých vln pro chaotický bouřlivý oceán
+                    // wave.xy = směr, wave.z = strmost, wave.w = délka vlny
+                    p += GerstnerWave(vec4(1.0, 0.2, 0.4, 60.0), gridPoint, tangent, binormal) * uWaveMultiplier;
+                    p += GerstnerWave(vec4(0.7, 0.7, 0.35, 31.0), gridPoint, tangent, binormal) * uWaveMultiplier;
+                    p += GerstnerWave(vec4(-0.2, 0.8, 0.3, 18.0), gridPoint, tangent, binormal) * uWaveMultiplier;
+                    p += GerstnerWave(vec4(0.5, -0.4, 0.2, 10.0), gridPoint, tangent, binormal) * uWaveMultiplier;
+                    
+                    vec3 transformed = p;
+                    
+                    // Předání výšky a strmosti do Fragment Shaderu pro výpočet pěny
+                    vElevation = transformed.z; // v lokálních souřadnicích je Z výška
+                    
+                    // Rekonstrukce normály z tečen pro správný odraz (pokud bychom nepoužili mapu normál)
+                    vec3 normal = normalize(cross(binormal, tangent));
+                    vSteepness = normal.y; // čím menší Y, tím strmější vlna
+                    `
+                );
+
+                // Přidání proměnných do Fragment Shaderu
+                shader.fragmentShader = `
+                    uniform float uFoamThreshold;
+                    varying float vElevation;
+                    varying float vSteepness;
+                ` + shader.fragmentShader;
+
+                // Aplikace mořské pěny na hřebeny vln
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <dithering_fragment>',
+                    `
+                    #include <dithering_fragment>
+                    
+                    // Výpočet pěny na základě výšky a strmosti
+                    // Pěna se tvoří vysoko a tam, kde je vlna ostrá
+                    float foamFactor = smoothstep(2.0, 15.0 * uWaveMultiplier, vElevation);
+                    
+                    // Přidání chaotického šumu do pěny
+                    float foamNoise = fract(sin(dot(vUv.xy ,vec2(12.9898,78.233))) * 43758.5453) * 0.5;
+                    foamFactor *= (0.5 + foamNoise);
+                    
+                    // Zesílení pěny (uFoamThreshold funguje inverzně)
+                    foamFactor = clamp(foamFactor * uFoamThreshold, 0.0, 1.0);
+                    
+                    // Barva pěny (lehce modravá/šedá kvůli mlze)
+                    vec3 foamColor = vec3(0.8, 0.85, 0.9);
+                    
+                    // Smíchání barvy vody s barvou pěny
+                    gl_FragColor = mix(gl_FragColor, vec4(foamColor, 1.0), foamFactor);
+                    `
+                );
+                water.userData.shader = shader;
+            };
+
+            water.rotation.x = - Math.PI / 2;
+            scene.add( water );
+
+            sky = new Sky();
+            sky.scale.setScalar( 10000 );
+            scene.add( sky );
+
+            const skyUniforms = sky.material.uniforms;
+            skyUniforms[ 'turbidity' ].value = 30; // Hustá šedá atmosféra
+            skyUniforms[ 'rayleigh' ].value = 1.2;
+            skyUniforms[ 'mieCoefficient' ].value = 0.1;
+            skyUniforms[ 'mieDirectionalG' ].value = 0.9;
+
+            const sun = new THREE.Vector3();
+            const phi = THREE.MathUtils.degToRad( 90 - params.sunElevation );
+            const theta = THREE.MathUtils.degToRad( 180 );
+            sun.setFromSphericalCoords( 1, phi, theta );
+            sky.material.uniforms[ 'sunPosition' ].value.copy( sun );
+            water.material.uniforms[ 'sunDirection' ].value.copy( sun ).normalize();
+            
+            // Okolní temné světlo
+            const ambientLight = new THREE.AmbientLight(0x223344, 0.5);
+            scene.add(ambientLight);
+
+            // Dynamický blesk (Directional light)
+            flashLight = new THREE.DirectionalLight(0xeefaff, 0);
+            flashLight.position.set(100, 500, 100);
+            scene.add(flashLight);
+
+            rainGeo = new THREE.BufferGeometry();
+            const rainPos = new Float32Array(50000 * 3); // Max kapacita
+            for(let i=0; i<50000 * 3; i+=3) {
+                rainPos[i] = (Math.random() - 0.5) * 800; // X
+                rainPos[i+1] = Math.random() * 400;       // Y
+                rainPos[i+2] = (Math.random() - 0.5) * 800; // Z
+            }
+            rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+            
+            const rainMaterial = new THREE.PointsMaterial({
+                color: 0x8899aa,
+                size: 0.5,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            rainSystem = new THREE.Points(rainGeo, rainMaterial);
+            scene.add(rainSystem);
+            updateRainCount();
+
+            const renderScene = new RenderPass(scene, camera);
+            
+            // Bloom - jemná záře pro změkčení obrazu
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.4, 0.85);
+            
+            // Film Pass - zrno, scanlines, snížení saturace pro filmový, drsný vzhled
+            const filmPass = new FilmPass(0.35, 0.0, 648, false);
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+            composer.addPass(filmPass);
+
+            controls = new OrbitControls( camera, renderer.domElement );
+            controls.maxPolarAngle = Math.PI * 0.49; // Zastavení těsně nad hladinou
+            controls.minDistance = 40.0;
+            controls.maxDistance = 500.0;
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            setupUI();
+            window.addEventListener( 'resize', onWindowResize );
+        }
+        
+        function updateRainCount() {
+            rainGeo.setDrawRange(0, params.rainCount);
+        }
+
+        function setupUI() {
+            document.getElementById('wave-height').addEventListener('input', (e) => {
+                params.waveMultiplier = parseFloat(e.target.value);
+                document.getElementById('val-wave-height').textContent = params.waveMultiplier.toFixed(1) + "x";
+                if (water.userData.shader) water.userData.shader.uniforms.uWaveMultiplier.value = params.waveMultiplier;
+            });
+
+            document.getElementById('foam-amount').addEventListener('input', (e) => {
+                params.foamThreshold = parseFloat(e.target.value);
+                let text = "Střední";
+                if(params.foamThreshold > 1.5) text = "Extrémní";
+                else if(params.foamThreshold < 0.5) text = "Nízké";
+                document.getElementById('val-foam').textContent = text;
+                if (water.userData.shader) water.userData.shader.uniforms.uFoamThreshold.value = params.foamThreshold;
+            });
+
+            document.getElementById('rain-intensity').addEventListener('input', (e) => {
+                params.rainCount = parseInt(e.target.value);
+                let text = "Střední";
+                if(params.rainCount > 40000) text = "Extrémní";
+                else if(params.rainCount < 10000) text = "Slabá";
+                document.getElementById('val-rain').textContent = text;
+                updateRainCount();
+            });
+
+            document.getElementById('water-speed').addEventListener('input', (e) => {
+                params.speed = parseFloat(e.target.value);
+                document.getElementById('val-speed').textContent = params.speed.toFixed(1) + "x";
+            });
+
+            document.getElementById('btn-camera').addEventListener('click', (e) => {
+                isBoatCamera = !isBoatCamera;
+                e.target.textContent = isBoatCamera ? "Pohled: Paluba lodi" : "Pohled: Letecký (Volný)";
+                e.target.classList.toggle('active');
+                if(!isBoatCamera) {
+                    controls.enabled = true; // Zpět na volnou rotaci myší
+                } else {
+                    controls.enabled = false; // Zamknout kameru pro simulaci lodi
+                }
+            });
+
+            document.getElementById('btn-lightning').addEventListener('click', (e) => {
+                lightningActive = !lightningActive;
+                e.target.textContent = lightningActive ? "Blesky: ZAPNUTO" : "Blesky: VYPNUTO";
+                e.target.classList.toggle('active');
+            });
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            composer.setSize( window.innerWidth, window.innerHeight );
+        }
+
+        function animate() {
+            requestAnimationFrame( animate );
+            
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // Kinetika deště - padání a silný vítr ze strany (nyní s poryvy větru)
+            const windGust = 1.0 + Math.sin(time * 2.0) * 0.6; // Poryvy větru zesilují a slábnou
+            const positions = rainGeo.attributes.position.array;
+            for(let i=0; i<params.rainCount * 3; i+=3) {
+                positions[i+1] -= 300 * delta; // gravitace (Y)
+                positions[i] -= 150 * windGust * delta;   // vítr (X) s poryvy
+                positions[i+2] -= 50 * delta;  // vítr (Z)
+                
+                // Pokud kapka dopadne pod úroveň kamery, resetujeme ji nahoru (váže se k pozici kamery)
+                if (positions[i+1] < camera.position.y - 10) {
+                    positions[i+1] = camera.position.y + 300 + Math.random() * 100;
+                    positions[i] = camera.position.x + (Math.random() - 0.5) * 800 + 200 * windGust; 
+                    positions[i+2] = camera.position.z + (Math.random() - 0.5) * 800;
+                }
+            }
+            rainGeo.attributes.position.needsUpdate = true;
+
+            // Systém blesků - Náhodné fotorealistické záblesky osvětlující pěnu
+            if (lightningActive) {
+                if (Math.random() > 0.992) { // Zhruba 1% šance na úder blesku v každém snímku
+                    flashLight.intensity = 100 + Math.random() * 400; // Intenzivní záblesk
+                    flashLight.position.set(
+                        (Math.random() - 0.5) * 2000,
+                        400,
+                        (Math.random() - 0.5) * 2000
+                    );
+                } else {
+                    // Plynulé, ale rychlé pohasínání blesku
+                    flashLight.intensity = Math.max(0, flashLight.intensity - delta * 800);
+                }
+            } else {
+                flashLight.intensity = 0;
+            }
+
+            // Čas pro shader vody
+            water.material.uniforms[ 'time' ].value += (delta * params.speed);
+
+            // Animační realita: Pohyb kamery
+            if (isBoatCamera) {
+                // Přibližný výpočet výšky vlny pro houpání kamery (simulace lodi)
+                const simTime = water.material.uniforms[ 'time' ].value;
+                const waveHeight = (
+                    Math.sin(simTime * 1.5) * 2.5 +
+                    Math.sin(simTime * 0.8) * 4.5 +
+                    Math.cos(simTime * 2.2) * 1.5
+                ) * params.waveMultiplier;
+                
+                // Plynulý pohyb nahoru a dolů (odpružení lodi)
+                camera.position.y += ((12 + waveHeight) - camera.position.y) * 0.08;
+                
+                // Dramatické naklánění ze strany na stranu (Pitch a Roll)
+                const pitch = Math.cos(simTime * 1.0) * 0.15 * params.waveMultiplier;
+                const roll = Math.sin(simTime * 1.2) * 0.1 * params.waveMultiplier;
+                
+                camera.rotation.x = pitch;
+                camera.rotation.z = roll;
+            } else {
+                controls.update(); // Volný 3D pohyb (Orbit)
+            }
+            
+            // Použití EffectComposer místo běžného render() pro aplikaci filmového zrna a mlhy
+            composer.render();
+        }
+    </script>
+</body>
+</html>

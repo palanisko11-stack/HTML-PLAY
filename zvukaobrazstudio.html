@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>Dabingové studio PRO – WebM / MP4 s dabingem</title>
+<style>
+  :root{
+    --bg:#0f1220; --panel:#1a1f35; --panel2:#232946;
+    --text:#e8ecff; --muted:#9aa3c7;
+    --accent:#6c8cff; --accent2:#ff7ab6;
+    --ok:#3ddc97; --danger:#ff5c7a; --warn:#ffc857;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;font-family:system-ui,"Segoe UI",Arial,sans-serif;
+    background:radial-gradient(1200px 600px at 20% -10%,#1d2444,var(--bg));
+    color:var(--text);min-height:100vh;
+  }
+  header{padding:24px 20px 8px;text-align:center;}
+  header h1{
+    margin:0 0 6px;font-size:26px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  header p{margin:0;color:var(--muted);font-size:14px;}
+
+  .wrap{
+    max-width:1180px;margin:0 auto;padding:20px;
+    display:grid;grid-template-columns:1fr 1fr;gap:20px;
+  }
+  @media (max-width:980px){.wrap{grid-template-columns:1fr;}}
+
+  .card{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid #2c3456;border-radius:14px;padding:18px;
+    box-shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  .card h2{margin:0 0 12px;font-size:17px;display:flex;align-items:center;gap:8px;}
+  .badge{
+    font-size:11px;background:#2c3456;color:var(--muted);
+    padding:3px 8px;border-radius:999px;font-weight:600;
+  }
+  label{font-size:13px;color:var(--muted);display:block;margin:10px 0 4px;}
+  textarea,input[type="text"],input[type="number"],select{
+    width:100%;padding:10px 12px;border-radius:10px;
+    border:1px solid #2c3456;background:#12162a;color:var(--text);
+    font-size:14px;outline:none;
+  }
+  textarea:focus,input:focus,select:focus{border-color:var(--accent);}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .row > *{flex:1;min-width:120px;}
+
+  button{
+    cursor:pointer;border:none;border-radius:10px;
+    padding:10px 14px;font-size:14px;font-weight:600;
+    color:#fff;background:#2c3456;
+    transition:transform .08s ease, filter .15s ease;
+  }
+  button:hover{filter:brightness(1.15);}
+  button:active{transform:translateY(1px);}
+  button.primary{background:linear-gradient(90deg,var(--accent),#8a6cff);}
+  button.good{background:linear-gradient(90deg,#24b47e,var(--ok));color:#04231a;}
+  button.danger{background:linear-gradient(90deg,#c93b57,var(--danger));}
+  button.warn{background:linear-gradient(90deg,#c99b3b,var(--warn));color:#231a04;}
+  button.ghost{background:transparent;border:1px solid #3a4370;color:var(--text);}
+  button.tiny{padding:5px 8px;font-size:12px;border-radius:8px;}
+  button:disabled{opacity:.45;cursor:not-allowed;filter:none;}
+
+  .switch{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);}
+  .switch input{accent-color:var(--accent);width:16px;height:16px;}
+
+  .status{font-size:12px;color:var(--muted);margin-top:8px;min-height:16px;}
+  .status.live{color:var(--ok);}
+  .status.rec{color:var(--danger);}
+  .status.warn{color:var(--warn);}
+
+  .recbar{
+    grid-column:1 / -1;
+    background:linear-gradient(180deg,#1a1f35,#202544);
+    border:1px solid #2c3456;border-radius:14px;
+    padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  }
+  .recbar .state{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;}
+  .recDot{
+    width:12px;height:12px;border-radius:50%;background:#4a5580;
+    box-shadow:0 0 0 0 rgba(255,92,122,.7);
+  }
+  .recDot.on{background:var(--danger);animation:pulse 1.1s infinite;}
+  .recDot.ready{background:var(--ok);}
+  .recDot.wait{background:var(--warn);animation:pulse 1.4s infinite;}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(255,92,122,.7);}
+    70%{box-shadow:0 0 0 14px rgba(255,92,122,0);}
+    100%{box-shadow:0 0 0 0 rgba(255,92,122,0);}
+  }
+  .recbar .time{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;min-width:60px;}
+  .recbar .spacer{flex:1;}
+  .recbar .hintline{font-size:12px;color:var(--muted);}
+
+  .stage{
+    position:relative;width:100%;aspect-ratio:16/9;
+    background:#000;border-radius:12px;overflow:hidden;
+    border:1px solid #2c3456;
+  }
+  .stage video,.stage img{
+    position:absolute;inset:0;width:100%;height:100%;
+    object-fit:contain;opacity:0;transition:opacity .35s ease;
+  }
+  .stage video.active,.stage img.active{opacity:1;}
+  .stage .caption{
+    position:absolute;left:0;right:0;bottom:0;
+    padding:26px 18px 16px;
+    background:linear-gradient(transparent,rgba(0,0,0,.85));
+    color:#fff;font-size:16px;font-weight:600;
+    text-shadow:0 2px 8px rgba(0,0,0,.8);min-height:60px;
+  }
+  .stage .empty{
+    position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;color:#4a5580;font-size:14px;
+  }
+
+  .timeline{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .timeline .dot{
+    width:34px;height:34px;border-radius:8px;
+    background:#232946;border:1px solid #2c3456;
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;color:var(--muted);cursor:pointer;position:relative;
+    transition: transform .1s ease;
+  }
+  .timeline .dot:hover{transform: translateY(-2px);}
+  .timeline .dot.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .timeline .dot.video{border-color:#4a9; }
+  .timeline .dot.image{ border-color:#94a;}
+
+  /* Seznam scén */
+  .sceneList{display:flex;flex-direction:column;gap:8px;margin-top:12px;max-height:280px;overflow-y:auto;padding-right:4px;}
+  .sceneRow{
+    display:grid;grid-template-columns:56px 1fr auto;gap:10px;align-items:center;
+    background:#12162a;border:1px solid #2c3456;border-radius:10px;padding:8px;
+  }
+  .sceneRow.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .sceneRow .mini{
+    width:56px;height:36px;border-radius:6px;background:#000;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;font-size:10px;color:#4a5580;
+  }
+  .sceneRow .mini img,.sceneRow .mini video{width:100%;height:100%;object-fit:cover;}
+  .sceneRow .info{font-size:12px;color:var(--muted);line-height:1.3;}
+  .sceneRow .info b{color:var(--text);font-size:13px;}
+  .sceneRow .acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;}
+  .sceneRow .acts button{padding:4px 8px;font-size:11px;border-radius:6px;}
+
+  .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;}
+  .kbd{background:#232946;padding:1px 6px;border-radius:6px;font-size:11px;}
+
+  .exportList{display:flex;flex-direction:column;gap:10px;margin-top:10px;}
+  .exportItem{
+    background:#12162a;border:1px solid #2c3456;border-radius:10px;
+    padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  }
+  .exportItem .name{font-size:13px;color:var(--text);word-break:break-all;}
+  .exportItem .size{font-size:11px;color:var(--muted);}
+  .exportItem video{height:60px;border-radius:6px;background:#000;}
+
+  canvas.offscreen{display:none;}
+
+  .progress{
+    width:100%;height:8px;background:#12162a;border-radius:999px;overflow:hidden;
+    margin-top:8px;border:1px solid #2c3456;display:none;
+  }
+  .progress.on{display:block;}
+  .progress > div{
+    height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    transition:width .2s ease;
+  }
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  @media (max-width:640px){.grid2,.grid3{grid-template-columns:1fr;}}
+
+  input[type="range"]{width:100%;accent-color:var(--accent);}
+  .miniLabel{font-size:11px;color:var(--muted);margin-top:2px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎬 Dabingové studio PRO</h1>
+  <p>Realtime TTS • Video s dabingem • Export WebM / MP4 pro YouTube</p>
+</header>
+
+<div class="wrap">
+
+  <!-- Horní lišta: stav nahrávání -->
+  <div class="recbar">
+    <div class="state">
+      <span class="recDot" id="recDot"></span>
+      <span id="recStateText">Nahrávání zvuku nezapnuto</span>
+    </div>
+    <div class="time" id="recTime">0.0 s</div>
+    <div class="spacer"></div>
+    <button class="primary" id="btnEnableRec">🎧 Povolit nahrávání zvuku</button>
+    <button class="ghost" id="btnTestRec" disabled>Test (3 s)</button>
+    <button class="ghost" id="btnDisableRec" disabled>Vypnout</button>
+    <div class="hintline" id="recHint">
+      Jednorázově vyber <b>kartu s touto stránkou</b> a zaškrtni <b>„Sdílet zvuk"</b>. Pak už jde vše automaticky.
+    </div>
+  </div>
+
+  <!-- 1) Realtime TTS -->
+  <div class="card">
+    <h2>1) Realtime čtení textu <span class="badge">Web Speech API</span></h2>
+
+    <label for="liveText">Piš text – bude se číst průběžně (po větách)</label>
+    <textarea id="liveText" rows="6">Dobrý den. Toto je syntetický hlas v reálném čase. Můžu ho přidat k videu a exportovat jako MP4.</textarea>
+
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="btnLive">▶ Zapnout realtime</button>
+      <button class="ghost" id="btnReadNow">🔊 Přečíst celé</button>
+      <button class="danger" id="btnStopLive">■ Stop</button>
+    </div>
+
+    <div class="grid3" style="margin-top:10px">
+      <div>
+        <label for="voiceSelect">Hlas</label>
+        <select id="voiceSelect"></select>
+      </div>
+      <div>
+        <label for="rate">Rychlost <span id="rateVal">1.0</span></label>
+        <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1" />
+      </div>
+      <div>
+        <label for="pitch">Výška <span id="pitchVal">1.0</span></label>
+        <input type="range" id="pitch" min="0" max="2" step="0.1" value="1" />
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:6px">
+      <div>
+        <label for="volume">Hlasitost dabingu <span id="volumeVal">100%</span></label>
+        <input type="range" id="volume" min="0" max="1" step="0.05" value="1" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <label class="switch">
+          <input type="checkbox" id="liveOn" /> Číst automaticky při psaní
+        </label>
+      </div>
+    </div>
+
+    <div class="status" id="liveStatus">Připraveno.</div>
+  </div>
+
+  <!-- 2) Video editor -->
+  <div class="card">
+    <h2>2) Video s dabingem <span class="badge">scény + TTS</span></h2>
+
+    <div class="stage" id="stage">
+      <div class="empty" id="stageEmpty">Zatím žádné scény – přidej video nebo obrázky.</div>
+      <div class="caption" id="caption"></div>
+    </div>
+
+    <div class="timeline" id="timeline"></div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="btnAddVideo">🎞 Přidat video</button>
+      <button class="primary" id="btnAddImage">🖼 Přidat obrázek</button>
+      <button class="warn" id="btnClear">Vyčistit vše</button>
+    </div>
+
+    <label style="margin-top:14px;">Seznam scén</label>
+    <div class="sceneList" id="sceneList">
+      <div class="hint" id="sceneHint">Zatím žádné scény.</div>
+    </div>
+
+    <div class="grid2" style="margin-top:12px">
+      <div>
+        <label for="outputFormat">Formát výstupu</label>
+        <select id="outputFormat">
+          <option value="mp4" selected>MP4 (H.264 + AAC) – pro YouTube</option>
+          <option value="webm">WebM (VP9 + Opus) – bez konverze</option>
+        </select>
+      </div>
+      <div>
+        <label for="resolution">Rozlišení</label>
+        <select id="resolution">
+          <option value="854x480">854×480 (SD)</option>
+          <option value="1280x720">1280×720 (HD)</option>
+          <option value="1920x1080" selected>1920×1080 (Full HD)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:6px">
+      <div>
+        <label for="fps">FPS</label>
+        <select id="fps">
+          <option value="24">24</option>
+          <option value="30" selected>30</option>
+          <option value="60">60</option>
+        </select>
+      </div>
+      <div>
+        <label for="gapMs">Prodleva mezi scénami (ms)</label>
+        <input type="number" id="gapMs" value="300" min="0" max="5000" step="50" />
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:6px">
+      <div>
+        <label class="switch">
+          <input type="checkbox" id="burnCaptions" checked /> Vypálit titulky do videa
+        </label>
+      </div>
+      <div>
+        <label class="switch">
+          <input type="checkbox" id="origAudio" /> Ponechat původní zvuk videa (míchat s dabingem)
+        </label>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="good" id="btnExport">🎬 Nahrát a vyexportovat video</button>
+      <button class="ghost" id="btnPreview">▶ Náhled</button>
+      <button class="danger" id="btnStop">■ Stop</button>
+    </div>
+
+    <div class="status" id="videoStatus">Připraveno.</div>
+    <div class="progress" id="progressWrap"><div id="progressBar"></div></div>
+  </div>
+
+  <!-- 3) Exporty -->
+  <div class="card" style="grid-column:1 / -1;">
+    <h2>3) Hotová videa <span class="badge">automatické stažení</span></h2>
+    <div class="exportList" id="exportList">
+      <div class="hint" id="exportHint">Zatím nic vyexportováno.</div>
+    </div>
+  </div>
+
+</div>
+
+<input type="file" id="filePicker" accept="video/*,image/*" hidden />
+<canvas id="renderCanvas" class="offscreen"></canvas>
+
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<script>
+/* =========================================================================
+   0) POMOCNÉ
+   ========================================================================= */
+const $ = id => document.getElementById(id);
+const tsName = () => new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+
+/* =========================================================================
+   1) REALTIME TTS
+   ========================================================================= */
+const synth = window.speechSynthesis;
+let voices = [];
+
+function loadVoices(){
+  voices = synth.getVoices();
+  const sel = $('voiceSelect');
+  sel.innerHTML = '';
+  voices.forEach((v,i)=>{
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `${v.name} (${v.lang})`;
+    if(v.lang && v.lang.toLowerCase().startsWith('cs')) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  if(!voices.length){
+    const opt = document.createElement('option');
+    opt.textContent = 'Načítám hlasy…';
+    sel.appendChild(opt);
+  }
+}
+loadVoices();
+if(synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+
+function currentVoice(){
+  const v = voices[+$('voiceSelect').value];
+  return v || null;
+}
+
+function makeUtterance(text, {onEnd, onStart} = {}){
+  const u = new SpeechSynthesisUtterance(text);
+  const v = currentVoice();
+  if(v) u.voice = v;
+  u.lang = (v && v.lang) || 'cs-CZ';
+  u.rate = +$('rate').value;
+  u.pitch = +$('pitch').value;
+  u.volume = +$('volume').value;
+  if(onEnd){ u.onend = onEnd; u.onerror = onEnd; }
+  if(onStart) u.onstart = onStart;
+  return u;
+}
+
+/* Slider hodnoty */
+$('rate').addEventListener('input', ()=> $('rateVal').textContent = (+$('rate').value).toFixed(1));
+$('pitch').addEventListener('input', ()=> $('pitchVal').textContent = (+$('pitch').value).toFixed(1));
+$('volume').addEventListener('input', ()=> $('volumeVal').textContent = Math.round($('volume').value*100)+'%');
+
+/* Realtime logika */
+let lastSpokenIndex = 0;
+let speakTimer = null;
+const liveText = $('liveText');
+const liveOn = $('liveOn');
+const liveStatus = $('liveStatus');
+
+liveText.addEventListener('input', ()=>{
+  if(!liveOn.checked) return;
+  clearTimeout(speakTimer);
+  speakTimer = setTimeout(processLive, 400);
+});
+
+function processLive(){
+  const full = liveText.value;
+  if(full.length <= lastSpokenIndex) return;
+  const tail = full.slice(lastSpokenIndex);
+  const match = tail.match(/^(.*[.!?…])(\s|$)/s);
+  if(!match) return;
+  const sentence = match[1].trim();
+  lastSpokenIndex += match[0].length;
+  if(sentence) synth.speak(makeUtterance(sentence));
+}
+
+$('btnLive').onclick = ()=>{
+  liveOn.checked = true;
+  lastSpokenIndex = 0;
+  liveStatus.textContent = 'Realtime zapnut – piš text…';
+  liveStatus.classList.add('live');
+  processLive();
+};
+$('btnStopLive').onclick = ()=>{
+  liveOn.checked = false;
+  synth.cancel();
+  liveStatus.textContent = 'Zastaveno.';
+  liveStatus.classList.remove('live');
+};
+$('btnReadNow').onclick = ()=>{
+  lastSpokenIndex = liveText.value.length;
+  synth.cancel();
+  liveStatus.textContent = 'Mluvím…';
+  liveStatus.classList.add('live');
+  synth.speak(makeUtterance(liveText.value, {
+    onEnd: ()=>{ liveStatus.textContent = 'Připraveno.'; liveStatus.classList.remove('live'); }
+  }));
+};
+
+/* =========================================================================
+   2) NAHRÁVÁNÍ SYSTÉMOVÉHO ZVUKU (audio z getDisplayMedia)
+   ========================================================================= */
+const recDot = $('recDot');
+const recStateText = $('recStateText');
+const recTime = $('recTime');
+const btnEnableRec = $('btnEnableRec');
+const btnDisableRec = $('btnDisableRec');
+const btnTestRec = $('btnTestRec');
+
+let captureStream = null;   // MediaStream s audio stopami
+let recTimer = null;
+let recStart = 0;
+let testRecorder = null;
+
+function setRecUi(state, label=''){
+  // state: 'off' | 'ready' | 'rec'
+  recDot.classList.remove('on','ready','wait');
+  if(state === 'rec'){
+    recDot.classList.add('on');
+    recStateText.textContent = 'Nahrávám' + (label ? ' ('+label+')' : '') + '…';
+    recStart = Date.now();
+    clearInterval(recTimer);
+    recTimer = setInterval(()=>{
+      recTime.textContent = ((Date.now()-recStart)/1000).toFixed(1)+' s';
+    },100);
+  }else if(state === 'ready'){
+    recDot.classList.add('ready');
+    recStateText.textContent = 'Zvuk povolen – připraven';
+    clearInterval(recTimer);
+    recTime.textContent = '0.0 s';
+  }else{
+    recStateText.textContent = 'Nahrávání zvuku nezapnuto';
+    clearInterval(recTimer);
+    recTime.textContent = '0.0 s';
+  }
+}
+
+async function enableCapture(){
+  if(!navigator.mediaDevices?.getDisplayMedia){
+    alert('Tvůj prohlížeč nepodporuje sdílení systémového zvuku. Použij Chrome/Edge.');
+    return false;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false, sampleRate:48000 }
+    });
+    // video stopu nepotřebujeme
+    stream.getVideoTracks().forEach(t=> t.stop());
+
+    if(!stream.getAudioTracks().length){
+      stream.getTracks().forEach(t=> t.stop());
+      alert('Nebyl sdílen žádný zvuk. Zkus to znovu a zaškrtni „Sdílet zvuk".');
+      return false;
+    }
+
+    // Když uživatel zastaví sdílení přes lištu prohlížeče
+    stream.getAudioTracks()[0].addEventListener('ended', ()=>{
+      captureStream = null;
+      btnEnableRec.disabled = false;
+      btnDisableRec.disabled = true;
+      btnTestRec.disabled = true;
+      btnEnableRec.textContent = '🎧 Povolit nahrávání zvuku';
+      setRecUi('off');
+    });
+
+    captureStream = stream;
+    btnEnableRec.disabled = true;
+    btnDisableRec.disabled = false;
+    btnTestRec.disabled = false;
+    btnEnableRec.textContent = '🎧 Nahrávání povoleno';
+    setRecUi('ready');
+    return true;
+  }catch(e){
+    if(e.name !== 'NotAllowedError') alert('Nelze získat systémový zvuk: '+e.message);
+    return false;
+  }
+}
+
+btnEnableRec.onclick = enableCapture;
+
+btnDisableRec.onclick = ()=>{
+  if(captureStream){ captureStream.getTracks().forEach(t=> t.stop()); captureStream = null; }
+  btnEnableRec.disabled = false;
+  btnDisableRec.disabled = true;
+  btnTestRec.disabled = true;
+  btnEnableRec.textContent = '🎧 Povolit nahrávání zvuku';
+  setRecUi('off');
+};
+
+btnTestRec.onclick = ()=>{
+  if(!captureStream) return;
+  const rec = new MediaRecorder(captureStream, { mimeType: pickAudioMime() });
+  const chunks = [];
+  rec.ondataavailable = e=>{ if(e.data.size) chunks.push(e.data); };
+  rec.onstop = ()=>{
+    const blob = new Blob(chunks, { type: rec.mimeType });
+    addExportItem(blob, `test-zvuk-${tsName()}.${extFromMime(rec.mimeType)}`, true);
+  };
+  rec.start();
+  setRecUi('rec','test 3s');
+  setTimeout(()=>{ rec.stop(); setRecUi('ready'); }, 3000);
+};
+
+function pickAudioMime(){
+  if(MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) return 'audio/webm;codecs=opus';
+  if(MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+  return '';
+}
+function extFromMime(m){
+  if(!m) return 'webm';
+  if(m.includes('webm')) return 'webm';
+  if(m.includes('mp4')) return 'm4a';
+  return 'webm';
+}
+
+/* =========================================================================
+   3) VIDEO EDITOR (scény)
+   ========================================================================= */
+const stage = $('stage');
+const stageEmpty = $('stageEmpty');
+const captionEl = $('caption');
+const timeline = $('timeline');
+const sceneList = $('sceneList');
+const filePicker = $('filePicker');
+const videoStatus = $('videoStatus');
+const renderCanvas = $('renderCanvas');
+const progressWrap = $('progressWrap');
+const progressBar = $('progressBar');
+
+let scenes = [];        // { id, type:'video'|'image', src, name, text, duration, gap }
+let currentScene = -1;
+let playTimer = null;
+let playing = false;
+let activeMediaEl = null;
+let pendingType = 'video';
+let sceneSeq = 0;
+
+function showProgress(show, pct=0){
+  progressWrap.classList.toggle('on', show);
+  progressBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+function setVideoStatus(txt, cls=''){
+  videoStatus.className = 'status ' + cls;
+  videoStatus.textContent = txt;
+}
+
+/* --- Vykreslení seznamu scén --- */
+function renderSceneList(){
+  sceneList.innerHTML = '';
+  if(!scenes.length){
+    sceneList.innerHTML = '<div class="hint" id="sceneHint">Zatím žádné scény.</div>';
+    timeline.innerHTML = '';
+    stageEmpty.style.display = 'flex';
+    return;
+  }
+  stageEmpty.style.display = 'none';
+
+  scenes.forEach((s,i)=>{
+    const row = document.createElement('div');
+    row.className = 'sceneRow' + (i===currentScene?' active':'');
+
+    const mini = document.createElement('div');
+    mini.className = 'mini';
+    if(s.type === 'video'){
+      const v = document.createElement('video');
+      v.src = s.src; v.muted = true;
+      mini.appendChild(v);
+    }else{
+      const im = document.createElement('img');
+      im.src = s.src;
+      mini.appendChild(im);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    info.innerHTML = `<b>${i+1}. ${s.type === 'video' ? '🎞 video' : '🖼 obrázek'}</b><br>
+      ${s.text ? s.text.slice(0,60) + (s.text.length>60?'…':'') : '<i>(bez textu)</i>'} · ${s.duration}s`;
+
+    const acts = document.createElement('div');
+    acts.className = 'acts';
+
+    const btnUp = document.createElement('button');
+    btnUp.className = 'ghost tiny'; btnUp.textContent = '▲';
+    btnUp.disabled = i === 0;
+    btnUp.onclick = ()=> swapScenes(i, i-1);
+
+    const btnDown = document.createElement('button');
+    btnDown.className = 'ghost tiny'; btnDown.textContent = '▼';
+    btnDown.disabled = i === scenes.length-1;
+    btnDown.onclick = ()=> swapScenes(i, i+1);
+
+    const btnEdit = document.createElement('button');
+    btnEdit.className = 'primary tiny'; btnEdit.textContent = '✎';
+    btnEdit.onclick = ()=> editScene(i);
+
+    const btnPlay = document.createElement('button');
+    btnPlay.className = 'good tiny'; btnPlay.textContent = '▶';
+    btnPlay.onclick = ()=> { currentScene = i; showScene(i, false); };
+
+    const btnDel = document.createElement('button');
+    btnDel.className = 'danger tiny'; btnDel.textContent = '✕';
+    btnDel.onclick = ()=> removeScene(i);
+
+    acts.append(btnUp, btnDown, btnEdit, btnPlay, btnDel);
+    row.append(mini, info, acts);
+    sceneList.appendChild(row);
+  });
+
+  // Timeline dole
+  timeline.innerHTML = '';
+  scenes.forEach((s,i)=>{
+    const d = document.createElement('div');
+    d.className = 'dot ' + s.type + (i===currentScene?' active':'');
+    d.textContent = i+1;
+    d.title = s.text || '';
+    d.onclick = ()=>{ currentScene = i; showScene(i, false); };
+    timeline.appendChild(d);
+  });
+}
+
+function swapScenes(a,b){
+  if(a<0||b<0||a>=scenes.length||b>=scenes.length) return;
+  [scenes[a], scenes[b]] = [scenes[b], scenes[a]];
+  if(currentScene === a) currentScene = b;
+  else if(currentScene === b) currentScene = a;
+  renderSceneList();
+}
+
+function removeScene(i){
+  scenes.splice(i,1);
+  if(currentScene >= scenes.length) currentScene = scenes.length-1;
+  if(!scenes.length){ currentScene = -1; clearStageMedia(); captionEl.textContent = ''; }
+  renderSceneList();
+}
+
+function clearStageMedia(){
+  stage.querySelectorAll('video, img').forEach(el=> el.remove());
+  activeMediaEl = null;
+}
+
+function showScene(i, withSpeech=true){
+  if(i<0 || i>=scenes.length) return;
+  currentScene = i;
+  const s = scenes[i];
+  clearStageMedia();
+
+  let el;
+  if(s.type === 'video'){
+    el = document.createElement('video');
+    el.src = s.src;
+    el.playsInline = true;
+    el.loop = false;
+    el.muted = !$('origAudio').checked;    // originál zvuk volitelně
+  }else{
+    el = document.createElement('img');
+    el.src = s.src;
+  }
+  el.classList.add('active');
+  stage.appendChild(el);
+  activeMediaEl = el;
+  captionEl.textContent = s.text || '';
+  renderSceneList();
+
+  if(s.type === 'video'){
+    el.currentTime = 0;
+    el.play().catch(()=>{});
+  }
+  if(withSpeech && s.text) synth.speak(makeUtterance(s.text));
+
+  clearTimeout(playTimer);
+  if(playing){
+    // Přehrát scénu podle délky
+    const dur = (s.duration || 3) * 1000;
+    playTimer = setTimeout(()=>{
+      if(currentScene < scenes.length - 1) showScene(currentScene+1, true);
+      else stopPreview();
+    }, dur);
+  }
+}
+
+function startPreview(){
+  if(!scenes.length) return alert('Přidej nejprve alespoň jednu scénu.');
+  playing = true;
+  setVideoStatus('Náhled běží…', 'live');
+  showScene(0, true);
+}
+function stopPreview(){
+  playing = false;
+  clearTimeout(playTimer);
+  synth.cancel();
+  if(activeMediaEl && activeMediaEl.tagName === 'VIDEO') activeMediaEl.pause();
+  setVideoStatus('Připraveno.');
+}
+$('btnPreview').onclick = startPreview;
+$('btnStop').onclick = stopPreview;
+$('btnClear').onclick = ()=>{
+  if(scenes.length && !confirm('Opravdu vyčistit všechny scény?')) return;
+  stopPreview();
+  scenes = []; currentScene = -1;
+  clearStageMedia(); captionEl.textContent = '';
+  renderSceneList();
+  setVideoStatus('Vyčištěno.');
+};
+
+$('btnAddVideo').onclick = ()=>{ pendingType='video'; filePicker.accept='video/*'; filePicker.click(); };
+$('btnAddImage').onclick = ()=>{ pendingType='image'; filePicker.accept='image/*'; filePicker.click(); };
+
+filePicker.onchange = ()=>{
+  const file = filePicker.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  scenes.push({
+    id: ++sceneSeq,
+    type: pendingType,
+    src: url,
+    name: file.name,
+    text: '',
+    duration: pendingType === 'video' ? 5 : 3,
+    gap: 300
+  });
+  const idx = scenes.length - 1;
+  renderSceneList();
+  editScene(idx);
+  filePicker.value = '';
+};
+
+function editScene(index){
+  const s = scenes[index];
+  const text = prompt('Text pro dabing této scény:', s.text || '');
+  if(text === null) return;
+  s.text = text;
+
+  const durStr = prompt('Délka scény v sekundách (u videa max. do konce přehrávání):', String(s.duration || 3));
+  const dur = parseFloat(durStr);
+  if(!isNaN(dur) && dur > 0) s.duration = dur;
+
+  renderSceneList();
+  if(currentScene === index) showScene(index, false);
+}
+
+/* =========================================================================
+   4) EXPORT VIDEA
+   ========================================================================= */
+let ffmpeg = null, ffmpegReady = false;
+async function loadFFmpeg(){
+  if(ffmpegReady) return ffmpeg;
+  if(typeof FFmpeg === 'undefined') throw new Error('ffmpeg.wasm není dostupný (CDN selhalo).');
+  ffmpeg = FFmpeg.createFFmpeg({
+    log: false,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+  });
+  await ffmpeg.load();
+  ffmpegReady = true;
+  return ffmpeg;
+}
+
+function pickVideoMime(){
+  const c = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm'
+  ];
+  for(const m of c) if(MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+
+$('btnExport').onclick = async ()=>{
+  if(!scenes.length) return alert('Přidej nejprve alespoň jednu scénu.');
+  if(!captureStream) return alert('Nejprve klikni na „🎧 Povolit nahrávání zvuku" a zaškrtni „Sdílet zvuk".');
+
+  const btn = $('btnExport');
+  btn.disabled = true;
+  setVideoStatus('Spouštím export…', 'warn');
+  showProgress(true, 0);
+
+  // Rozměry
+  const [W,H] = $('resolution').value.split('x').map(Number);
+  const fps = +$('fps').value || 30;
+  const gapMs = Math.max(0, +$('gapMs').value || 0);
+  const burnCaptions = $('burnCaptions').checked;
+
+  renderCanvas.width = W;
+  renderCanvas.height = H;
+  const ctx = renderCanvas.getContext('2d', { alpha:false });
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+
+  // Stream z canvasu
+  const canvasStream = renderCanvas.captureStream(fps);
+  const videoTrack = canvasStream.getVideoTracks()[0];
+
+  // Audio stream
+  const outputStream = new MediaStream();
+  outputStream.addTrack(videoTrack);
+  captureStream.getAudioTracks().forEach(t=> outputStream.addTrack(t));
+
+  // MediaRecorder
+  const mime = pickVideoMime();
+  const rec = new MediaRecorder(outputStream, mime ? { mimeType: mime, videoBitsPerSecond: 8_000_000 } : undefined);
+  const chunks = [];
+  rec.ondataavailable = e=>{ if(e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(res=>{ rec.onstop = res; });
+
+  rec.start(1000);
+  setRecUi('rec', 'video export');
+
+  // Připravíme elementy
+  const prepared = scenes.map(s=>{
+    if(s.type === 'video'){
+      const v = document.createElement('video');
+      v.src = s.src; v.muted = true; v.playsInline = true; v.crossOrigin = 'anonymous';
+      return { el:v, type:'video', text:s.text || '', duration:s.duration || 5, gap:gapMs };
+    }else{
+      const img = new Image();
+      img.src = s.src; img.crossOrigin = 'anonymous';
+      return { el:img, type:'image', text:s.text || '', duration:s.duration || 3, gap:gapMs };
+    }
+  });
+
+  // Počkat na načtení
+  await Promise.all(prepared.map(p=> new Promise(res=>{
+    if(p.type === 'video'){
+      if(p.el.readyState >= 1) return res();
+      p.el.onloadedmetadata = ()=>res();
+      p.el.onerror = ()=>res();
+    }else{
+      if(p.el.complete) return res();
+      p.el.onload = ()=>res();
+      p.el.onerror = ()=>res();
+    }
+  })));
+
+  // Vykreslovací smyčka
+  let sceneIndex = 0;
+  let drawRaf = null;
+  let aborted = false;
+  window.__abortExport = ()=>{ aborted = true; };
+
+  function drawFrame(){
+    if(aborted) return;
+    const p = prepared[sceneIndex];
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,W,H);
+    if(p){
+      if(p.type === 'video'){
+        if(p.el.videoWidth && p.el.videoHeight){
+          const sc = Math.min(W/p.el.videoWidth, H/p.el.videoHeight);
+          const dw = p.el.videoWidth*sc, dh = p.el.videoHeight*sc;
+          ctx.drawImage(p.el, (W-dw)/2, (H-dh)/2, dw, dh);
+        }
+      }else{
+        if(p.el.naturalWidth){
+          const sc = Math.min(W/p.el.naturalWidth, H/p.el.naturalHeight);
+          const dw = p.el.naturalWidth*sc, dh = p.el.naturalHeight*sc;
+          ctx.drawImage(p.el, (W-dw)/2, (H-dh)/2, dw, dh);
+        }
+      }
+      if(burnCaptions && p.text){
+        ctx.save();
+        const fs = Math.round(H*0.05);
+        ctx.font = `bold ${fs}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // zalamování
+        const maxW = W * 0.9;
+        const words = p.text.split(/\s+/);
+        const lines = [];
+        let cur = '';
+        for(const w of words){
+          const test = cur ? cur + ' ' + w : w;
+          if(ctx.measureText(test).width > maxW && cur){ lines.push(cur); cur = w; }
+          else cur = test;
+        }
+        if(cur) lines.push(cur);
+
+        const lineH = fs * 1.25;
+        const boxH = lineH * lines.length + 24;
+        const yStart = H - boxH - 24;
+
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, yStart, W, boxH);
+        ctx.fillStyle = '#fff';
+        lines.forEach((ln, idx)=>{
+          ctx.fillText(ln, W/2, yStart + 12 + lineH*(idx+0.5));
+        });
+        ctx.restore();
+      }
+    }
+    drawRaf = requestAnimationFrame(drawFrame);
+  }
+  drawFrame();
+
+  // Přehrání jedné scény – čeká na MAX(délka, dabing)
+  function playScene(i){
+    return new Promise(resolve=>{
+      if(aborted) return resolve();
+      sceneIndex = i;
+      const p = prepared[i];
+      let videoEnded = false;
+      let speechEnded = !p.text;   // pokud není text, dabing "skončil"
+      let durationEnded = false;
+
+      function maybeFinish(){
+        if(aborted) return resolve();
+        if(videoEnded && speechEnded && durationEnded){
+          if(p.type === 'video') p.el.pause();
+          // mezera mezi scénami
+          setTimeout(resolve, p.gap);
+        }
+      }
+
+      // Délka scény
+      setTimeout(()=>{
+        durationEnded = true;
+        if(p.type === 'video' && !videoEnded){
+          videoEnded = true;   // u videa délka nahrazuje "konec"
+          p.el.pause();
+        }
+        maybeFinish();
+      }, (p.duration || 3) * 1000);
+
+      if(p.type === 'video'){
+        p.el.currentTime = 0;
+        p.el.play().catch(()=>{});
+        const onEnded = ()=>{ videoEnded = true; maybeFinish(); };
+        p.el.addEventListener('ended', onEnded, { once:true });
+        // Pokud je video kratší než scéna, ukončíme ho přirozeně.
+      }else{
+        videoEnded = true; // obrázek nemá "konec"
+      }
+
+      if(p.text){
+        const u = makeUtterance(p.text, {
+          onEnd: ()=>{ speechEnded = true; maybeFinish(); }
+        });
+        synth.speak(u);
+      }else{
+        speechEnded = true;
+      }
+    });
+  }
+
+  // Projít všechny scény
+  const total = prepared.length;
+  for(let i=0;i<total;i++){
+    if(aborted) break;
+    setVideoStatus(`Export: scéna ${i+1} / ${total}…`, 'warn');
+    showProgress(true, Math.round((i/total)*85));
+    await playScene(i);
+  }
+
+  // Doznění
+  await new Promise(r=>setTimeout(r, 500));
+
+  cancelAnimationFrame(drawRaf);
+  synth.cancel();
+  prepared.forEach(p=>{ if(p.type === 'video') p.el.pause(); });
+
+  if(rec.state !== 'inactive') rec.stop();
+  await stopped;
+
+  const webmBlob = new Blob(chunks, { type: rec.mimeType || 'video/webm' });
+
+  // Formát výstupu
+  const fmt = $('outputFormat').value;
+  if(fmt === 'mp4'){
+    try{
+      setVideoStatus('Konvertuji do MP4 (může trvat delší dobu)…', 'warn');
+      showProgress(true, 92);
+
+      if(!ffmpegReady){
+        setVideoStatus('Načítám ffmpeg.wasm (~25 MB)…', 'warn');
+        await loadFFmpeg();
+      }
+
+      await ffmpeg.FS('writeFile', 'input.webm', new Uint8Array(await webmBlob.arrayBuffer()));
+      showProgress(true, 94);
+
+      await ffmpeg.run(
+        '-i','input.webm',
+        '-c:v','libx264',
+        '-preset','ultrafast',
+        '-crf','23',
+        '-pix_fmt','yuv420p',
+        '-c:a','aac',
+        '-b:a','160k',
+        '-movflags','+faststart',
+        'output.mp4'
+      );
+      showProgress(true, 98);
+
+      const data = ffmpeg.FS('readFile','output.mp4');
+      const mp4Blob = new Blob([data.buffer], { type:'video/mp4' });
+
+      addExportItem(mp4Blob, `dabing-video-${tsName()}.mp4`, true);
+
+      try{ ffmpeg.FS('unlink','input.webm'); }catch(e){}
+      try{ ffmpeg.FS('unlink','output.mp4'); }catch(e){}
+      setVideoStatus('Export MP4 dokončen.', 'live');
+    }catch(err){
+      console.error(err);
+      addExportItem(webmBlob, `dabing-video-${tsName()}.webm`, true);
+      setVideoStatus('MP4 konverze selhala, uložil jsem WebM. ('+err.message+')', 'warn');
+    }
+  }else{
+    addExportItem(webmBlob, `dabing-video-${tsName()}.webm`, true);
+    setVideoStatus('Export WebM dokončen.', 'live');
+  }
+
+  showProgress(false);
+  btn.disabled = false;
+  setRecUi('ready');
+};
+
+/* Přerušení exportu */
+const origStop = $('btnStop').onclick;
+$('btnStop').onclick = ()=>{
+  if(window.__abortExport) window.__abortExport();
+  stopPreview();
+};
+
+/* =========================================================================
+   5) SEZNAM EXPORTŮ
+   ========================================================================= */
+function addExportItem(blob, name, autodownload=false){
+  const hint = $('exportHint');
+  if(hint) hint.remove();
+
+  const url = URL.createObjectURL(blob);
+  const item = document.createElement('div');
+  item.className = 'exportItem';
+
+  const info = document.createElement('div');
+  const mb = (blob.size/1024/1024).toFixed(2);
+  info.innerHTML = `<div class="name">${name}</div>
+                    <div class="size">${mb} MB · ${blob.type || 'video'}</div>`;
+
+  const vid = document.createElement('video');
+  vid.src = url;
+  vid.controls = true;
+
+  const dl = document.createElement('a');
+  dl.href = url;
+  dl.download = name;
+  dl.innerHTML = '<button class="good">⬇ Uložit</button>';
+
+  item.append(info, vid, dl);
+  $('exportList').prepend(item);
+
+  if(autodownload){
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+}
+
+/* =========================================================================
+   6) INIT
+   ========================================================================= */
+renderSceneList();
+setRecUi('off');
+</script>
+</body>
+</html>

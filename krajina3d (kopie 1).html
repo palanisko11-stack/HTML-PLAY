@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Photogrammetric Terrain</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#000;font-family:'Inter',system-ui,sans-serif}
+canvas{display:block}
+#ui{position:fixed;top:24px;left:28px;z-index:10;color:#fff;pointer-events:none}
+#ui h1{font-size:13px;font-weight:300;letter-spacing:5px;text-transform:uppercase;opacity:0.6;margin-bottom:3px}
+#ui p{font-size:9px;opacity:0.3;letter-spacing:2px}
+#controls{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:5px;z-index:10}
+.btn{background:rgba(255,255,255,0.05);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.07);color:rgba(255,255,255,0.5);padding:9px 20px;border-radius:20px;cursor:pointer;font-size:10px;letter-spacing:1.5px;transition:all 0.4s;font-weight:300;text-transform:uppercase}
+.btn:hover{background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.85)}
+.btn.active{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.18);color:#fff}
+.vig{position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:5;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.5) 100%)}
+#load{position:fixed;top:0;left:0;right:0;bottom:0;background:#06080c;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity 1.2s}
+#load span{color:rgba(255,255,255,0.25);font-size:10px;letter-spacing:5px;font-weight:300;text-transform:uppercase}
+#load .bar{width:200px;height:1px;background:rgba(255,255,255,0.08);margin-top:16px;border-radius:1px;overflow:hidden}
+#load .fill{height:100%;width:0%;background:rgba(255,255,255,0.3);transition:width 0.3s}
+#stats{position:fixed;top:24px;right:28px;z-index:10;color:rgba(255,255,255,0.2);font-size:8px;letter-spacing:1px;text-align:right;pointer-events:none;line-height:2}
+</style>
+</head>
+<body>
+<div id="load"><span>Processing Photogrammetry</span><div class="bar"><div class="fill" id="prog"></div></div></div>
+<div class="vig"></div>
+<div id="ui"><h1>Photogrammetric Terrain</h1><p>Procedural PBR · Volumetric Atmosphere · Gerstner Ocean</p></div>
+<div id="stats"><div id="fps">-- FPS</div><div id="tris">-- triangles</div></div>
+<div id="controls">
+<button class="btn active" onclick="setPreset('golden')">Golden Hour</button>
+<button class="btn" onclick="setPreset('overcast')">Overcast</button>
+<button class="btn" onclick="setPreset('night')">Night</button>
+<button class="btn" onclick="setPreset('storm')">Storm</button>
+<button class="btn" onclick="setPreset('dawn')">Dawn</button>
+<button class="btn" onclick="regen()">New Scan</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ===================== NOISE =====================
+class Noise {
+    constructor(seed) {
+        this.p = new Uint8Array(512);
+        const perm = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) perm[i] = i;
+        let s = seed | 0;
+        const rng = () => { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
+        for (let i = 255; i > 0; i--) { const j = Math.floor(rng() * (i + 1));[perm[i], perm[j]] = [perm[j], perm[i]]; }
+        for (let i = 0; i < 512; i++) this.p[i] = perm[i & 255];
+    }
+    fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+    lerp(a, b, t) { return a + t * (b - a); }
+    grad(h, x, y, z) { const e = h & 15; const u = e < 8 ? x : y; const v = e < 4 ? y : (e === 12 || e === 14) ? x : z; return ((e & 1) ? -u : u) + ((e & 2) ? -v : v); }
+    noise3(x, y, z) {
+        const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+        x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+        const u = this.fade(x), v = this.fade(y), w = this.fade(z);
+        const p = this.p;
+        const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z, B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+        return this.lerp(this.lerp(this.lerp(this.grad(p[AA], x, y, z), this.grad(p[BA], x - 1, y, z), u), this.lerp(this.grad(p[AB], x, y - 1, z), this.grad(p[BB], x - 1, y - 1, z), u), v), this.lerp(this.lerp(this.grad(p[AA + 1], x, y, z - 1), this.grad(p[BA + 1], x - 1, y, z - 1), u), this.lerp(this.grad(p[AB + 1], x, y - 1, z - 1), this.grad(p[BB + 1], x - 1, y - 1, z - 1), u), v), w);
+    }
+    fbm(x, y, z, oct, lac, gain) {
+        let v = 0, a = 1, f = 1, m = 0;
+        for (let i = 0; i < oct; i++) { v += this.noise3(x * f, y * f, z * f) * a; m += a; a *= gain; f *= lac; }
+        return v / m;
+    }
+    ridged(x, y, z, oct, lac, gain) {
+        let v = 0, a = 1, f = 1, m = 0;
+        for (let i = 0; i < oct; i++) { let n = 1 - Math.abs(this.noise3(x * f, y * f, z * f)); n = n * n; v += n * a; m += a; a *= gain; f *= lac; }
+        return v / m;
+    }
+}
+
+let noise, seed = Math.random() * 99999 | 0;
+
+// ===================== GLOBALS =====================
+let scene, camera, renderer, clock;
+let terrain, water, skyDome;
+let sunLight, ambLight, hemiLight, lightningLight;
+let grassMesh, treeMeshes = [];
+let isDrag = false, prevM = { x: 0, y: 0 };
+let camT = 0.6, camP = 0.3, camD = 50;
+let tgtT = 0.6, tgtP = 0.3, tgtD = 50;
+let preset = 'golden';
+let fc = 0, ft = 0;
+let totalTris = 0;
+
+const P = {
+    golden: { sunEl: 0.1, sunAz: 0.85, sunInt: 4.0, sunCol: [1.0, 0.72, 0.4], ambInt: 0.12, ambCol: [0.3, 0.25, 0.2], hemiInt: 0.25, hemiSky: [0.55, 0.45, 0.3], hemiGnd: [0.08, 0.06, 0.03], turb: 4.0, ray: 1.5, mie: 0.006, exp: 1.35, fogD: 0.003, fogC: [0.72, 0.55, 0.35], wCol: [0.01, 0.06, 0.1], wScat: [0.04, 0.18, 0.15], wAmp: 0.3, wSpd: 0.7, wind: 0.4 },
+    overcast: { sunEl: 0.55, sunAz: 1.2, sunInt: 1.8, sunCol: [0.88, 0.88, 0.86], ambInt: 0.35, ambCol: [0.45, 0.47, 0.5], hemiInt: 0.45, hemiSky: [0.55, 0.57, 0.6], hemiGnd: [0.12, 0.14, 0.08], turb: 10.0, ray: 2.0, mie: 0.025, exp: 1.05, fogD: 0.007, fogC: [0.55, 0.57, 0.6], wCol: [0.02, 0.05, 0.07], wScat: [0.03, 0.1, 0.12], wAmp: 0.18, wSpd: 0.4, wind: 0.6 },
+    night: { sunEl: -0.15, sunAz: 2.0, sunInt: 0.25, sunCol: [0.35, 0.4, 0.65], ambInt: 0.03, ambCol: [0.04, 0.05, 0.1], hemiInt: 0.04, hemiSky: [0.02, 0.03, 0.08], hemiGnd: [0.005, 0.01, 0.005], turb: 1.0, ray: 0.4, mie: 0.001, exp: 0.35, fogD: 0.005, fogC: [0.015, 0.02, 0.05], wCol: [0.003, 0.008, 0.025], wScat: [0.008, 0.025, 0.05], wAmp: 0.12, wSpd: 0.25, wind: 0.15 },
+    storm: { sunEl: 0.25, sunAz: 0.5, sunInt: 0.5, sunCol: [0.45, 0.45, 0.48], ambInt: 0.1, ambCol: [0.12, 0.12, 0.15], hemiInt: 0.12, hemiSky: [0.15, 0.15, 0.18], hemiGnd: [0.04, 0.05, 0.03], turb: 14.0, ray: 1.0, mie: 0.05, exp: 0.65, fogD: 0.016, fogC: [0.14, 0.14, 0.16], wCol: [0.015, 0.025, 0.035], wScat: [0.025, 0.05, 0.06], wAmp: 1.4, wSpd: 2.2, wind: 2.8 },
+    dawn: { sunEl: 0.04, sunAz: 3.8, sunInt: 2.8, sunCol: [1.0, 0.55, 0.35], ambInt: 0.08, ambCol: [0.2, 0.15, 0.18], hemiInt: 0.2, hemiSky: [0.35, 0.25, 0.35], hemiGnd: [0.06, 0.04, 0.05], turb: 6.0, ray: 2.0, mie: 0.008, exp: 1.2, fogD: 0.005, fogC: [0.5, 0.35, 0.35], wCol: [0.01, 0.04, 0.08], wScat: [0.06, 0.12, 0.12], wAmp: 0.22, wSpd: 0.5, wind: 0.3 }
+};
+
+let cur = {}, tgt = {};
+function cp(n) { const p = P[n]; const r = {}; for (let k in p) r[k] = Array.isArray(p[k]) ? [...p[k]] : p[k]; return r; }
+
+// ===================== TEXTURE GENERATION =====================
+function setProgress(p) { document.getElementById('prog').style.width = p + '%'; }
+
+function genTexture(type, size) {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(size, size);
+    const d = img.data;
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const i = (y * size + x) * 4;
+            const u = x / size, v = y / size;
+            let r, g, b;
+
+            if (type === 'grass') {
+                const n1 = noise.fbm(u * 40, v * 40, 0, 4, 2.2, 0.5) * 0.5 + 0.5;
+                const n2 = noise.fbm(u * 80 + 50, v * 80 + 50, 0, 3, 2.0, 0.5) * 0.5 + 0.5;
+                const n3 = noise.fbm(u * 160 + 100, v * 160 + 100, 0, 2, 2.0, 0.5) * 0.5 + 0.5;
+                const blade = Math.pow(n2, 2.0);
+                r = 0.12 + n1 * 0.12 + blade * 0.08 + n3 * 0.04;
+                g = 0.22 + n1 * 0.18 + blade * 0.15 + n3 * 0.06;
+                b = 0.04 + n1 * 0.06 + blade * 0.03 + n3 * 0.02;
+                // Yellow patches
+                const yp = noise.fbm(u * 12 + 200, v * 12 + 200, 0, 2, 2.0, 0.5) * 0.5 + 0.5;
+                if (yp > 0.6) { const t = (yp - 0.6) * 2.5; r += t * 0.12; g += t * 0.05; b -= t * 0.02; }
+                // Dirt spots
+                const dp = noise.fbm(u * 8 + 300, v * 8 + 300, 0, 2, 2.0, 0.5) * 0.5 + 0.5;
+                if (dp > 0.7) { const t = (dp - 0.7) * 3.3; r = r * (1 - t) + 0.22 * t; g = g * (1 - t) + 0.16 * t; b = b * (1 - t) + 0.08 * t; }
+            }
+            else if (type === 'rock') {
+                const n1 = noise.fbm(u * 20, v * 20, 5, 5, 2.1, 0.5) * 0.5 + 0.5;
+                const n2 = noise.fbm(u * 60, v * 60, 10, 4, 2.0, 0.5) * 0.5 + 0.5;
+                const n3 = noise.fbm(u * 150, v * 150, 15, 3, 2.0, 0.5) * 0.5 + 0.5;
+                const crack = noise.ridged(u * 15, v * 15, 20, 4, 2.2, 0.5);
+                const base = 0.28 + n1 * 0.15;
+                r = base + n2 * 0.06 + n3 * 0.03;
+                g = base * 0.95 + n2 * 0.05 + n3 * 0.025;
+                b = base * 0.88 + n2 * 0.04 + n3 * 0.02;
+                // Dark cracks
+                if (crack > 0.7) { const t = (crack - 0.7) * 3; r *= (1 - t * 0.5); g *= (1 - t * 0.5); b *= (1 - t * 0.5); }
+                // Moss patches
+                const moss = noise.fbm(u * 10 + 400, v * 10 + 400, 0, 3, 2.0, 0.5) * 0.5 + 0.5;
+                if (moss > 0.65) { const t = (moss - 0.65) * 2.8; r = r * (1 - t) + 0.12 * t; g = g * (1 - t) + 0.2 * t; b = b * (1 - t) + 0.06 * t; }
+            }
+            else if (type === 'dirt') {
+                const n1 = noise.fbm(u * 25, v * 25, 25, 4, 2.0, 0.5) * 0.5 + 0.5;
+                const n2 = noise.fbm(u * 70, v * 70, 30, 3, 2.0, 0.5) * 0.5 + 0.5;
+                const n3 = noise.fbm(u * 200, v * 200, 35, 2, 2.0, 0.5) * 0.5 + 0.5;
+                const pebbles = noise.fbm(u * 40 + 500, v * 40 + 500, 0, 3, 2.5, 0.4);
+                r = 0.22 + n1 * 0.1 + n2 * 0.05 + n3 * 0.03;
+                g = 0.16 + n1 * 0.08 + n2 * 0.04 + n3 * 0.02;
+                b = 0.08 + n1 * 0.05 + n2 * 0.03 + n3 * 0.015;
+                // Pebbles
+                if (pebbles > 0.3) { const t = Math.min(1, (pebbles - 0.3) * 2); r += t * 0.08; g += t * 0.06; b += t * 0.04; }
+            }
+            else if (type === 'sand') {
+                const n1 = noise.fbm(u * 30, v * 30, 40, 4, 2.0, 0.5) * 0.5 + 0.5;
+                const n2 = noise.fbm(u * 100, v * 100, 45, 3, 2.0, 0.5) * 0.5 + 0.5;
+                const ripple = Math.sin(u * 60 + noise.fbm(u * 5, v * 5, 50, 2, 2.0, 0.5) * 6) * 0.5 + 0.5;
+                r = 0.52 + n1 * 0.1 + n2 * 0.04 + ripple * 0.04;
+                g = 0.45 + n1 * 0.08 + n2 * 0.03 + ripple * 0.03;
+                b = 0.3 + n1 * 0.06 + n2 * 0.02 + ripple * 0.02;
+            }
+            else if (type === 'snow') {
+                const n1 = noise.fbm(u * 15, v * 15, 55, 4, 2.0, 0.5) * 0.5 + 0.5;
+                const n2 = noise.fbm(u * 50, v * 50, 60, 3, 2.0, 0.5) * 0.5 + 0.5;
+                const sparkle = Math.pow(noise.fbm(u * 200, v * 200, 65, 2, 2.0, 0.5) * 0.5 + 0.5, 8.0);
+                r = 0.78 + n1 * 0.08 + n2 * 0.03 + sparkle * 0.15;
+                g = 0.8 + n1 * 0.07 + n2 * 0.03 + sparkle * 0.15;
+                b = 0.85 + n1 * 0.06 + n2 * 0.03 + sparkle * 0.12;
+            }
+            else if (type === 'roughness') {
+                const n1 = noise.fbm(u * 20, v * 20, 70, 4, 2.0, 0.5) * 0.5 + 0.5;
+                const n2 = noise.fbm(u * 60, v * 60, 75, 3, 2.0, 0.5) * 0.5 + 0.5;
+                const val = 0.7 + n1 * 0.2 + n2 * 0.1;
+                r = g = b = val;
+            }
+            else if (type === 'normal') {
+                // Generate normal map from noise heightmap
+                const s = 2.0;
+                const hL = noise.fbm((u - 1 / size) * 20, v * 20, 80, 3, 2.0, 0.5);
+                const hR = noise.fbm((u + 1 / size) * 20, v * 20, 80, 3, 2.0, 0.5);
+                const hD = noise.fbm(u * 20, (v - 1 / size) * 20, 80, 3, 2.0, 0.5);
+                const hU = noise.fbm(u * 20, (v + 1 / size) * 20, 80, 3, 2.0, 0.5);
+                let nx = (hL - hR) * s, ny = 1.0, nz = (hD - hU) * s;
+                const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                r = (nx / len * 0.5 + 0.5);
+                g = (ny / len * 0.5 + 0.5);
+                b = (nz / len * 0.5 + 0.5);
+            }
+
+            d[i] = Math.max(0, Math.min(255, r * 255));
+            d[i + 1] = Math.max(0, Math.min(255, g * 255));
+            d[i + 2] = Math.max(0, Math.min(255, b * 255));
+            d[i + 3] = 255;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 16;
+    return tex;
+}
+
+// ===================== TERRAIN HEIGHT =====================
+function getHeight(x, z) {
+    let h = 0;
+    // Continental scale
+    h += noise.fbm(x * 0.006, z * 0.006, 0, 7, 2.0, 0.48) * 28;
+    // Mountain ridges
+    h += noise.ridged(x * 0.012, z * 0.012, 5, 6, 2.1, 0.5) * 14;
+    // Hills
+    h += noise.fbm(x * 0.025, z * 0.025, 10, 5, 2.0, 0.5) * 7;
+    // Detail
+    h += noise.fbm(x * 0.08, z * 0.08, 15, 4, 2.0, 0.5) * 2.5;
+    // Fine detail
+    h += noise.fbm(x * 0.25, z * 0.25, 20, 3, 2.0, 0.5) * 0.8;
+    // Micro detail
+    h += noise.fbm(x * 0.8, z * 0.8, 25, 2, 2.0, 0.5) * 0.2;
+
+    // Lake basin
+    const cd = Math.sqrt(x * x + z * z);
+    if (cd < 22) {
+        const t = 1 - cd / 22;
+        h -= t * t * 12;
+        // Shore rise
+        if (cd > 16 && cd < 22) {
+            const st = (cd - 16) / 6;
+            h += Math.sin(st * Math.PI) * 1.5;
+        }
+    }
+
+    // Edge falloff
+    const dist = Math.sqrt(x * x + z * z);
+    const edge = Math.max(0, 1 - dist / 58);
+    h *= Math.pow(edge, 2.2);
+
+    return h;
+}
+
+// ===================== INIT =====================
+function init() {
+    clock = new THREE.Clock();
+    noise = new Noise(seed);
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(new THREE.Color(...P.golden.fogC), 0.003);
+
+    camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 600);
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.physicallyCorrectLights = true;
+    document.body.appendChild(renderer.domElement);
+
+    cur = cp('golden');
+    tgt = cp('golden');
+
+    setProgress(10);
+    setTimeout(() => {
+        createSky();
+        setProgress(20);
+        setTimeout(() => {
+            createTerrain();
+            setProgress(60);
+            setTimeout(() => {
+                createWater();
+                setProgress(75);
+                setTimeout(() => {
+                    createVegetation();
+                    setProgress(90);
+                    setTimeout(() => {
+                        setupLights();
+                        setProgress(100);
+                        setupEvents();
+                        setTimeout(() => {
+                            const l = document.getElementById('load');
+                            l.style.opacity = '0';
+                            setTimeout(() => l.style.display = 'none', 1200);
+                        }, 400);
+                        animate();
+                    }, 50);
+                }, 50);
+            }, 50);
+        }, 50);
+    }, 50);
+}
+
+// ===================== SKY =====================
+function createSky() {
+    const geo = new THREE.SphereGeometry(280, 64, 48);
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            uSunDir: { value: new THREE.Vector3(0.5, 0.3, 0.5) },
+            uTurb: { value: 4.0 }, uRay: { value: 1.5 }, uMie: { value: 0.006 },
+            uSunInt: { value: 4.0 }, uSunCol: { value: new THREE.Vector3(1, 0.72, 0.4) },
+            uTime: { value: 0 }
+        },
+        vertexShader: `varying vec3 vDir; void main(){ vDir=normalize((modelMatrix*vec4(position,1.0)).xyz); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+        fragmentShader: `
+            uniform vec3 uSunDir,uSunCol;
+            uniform float uTurb,uRay,uMie,uSunInt,uTime;
+            varying vec3 vDir;
+            
+            float hash(vec3 p){return fract(sin(dot(p,vec3(127.1,311.7,74.7)))*43758.5453);}
+            
+            // Cloud noise
+            float cnoise(vec2 p){
+                vec2 i=floor(p),f=fract(p);
+                f=f*f*(3.0-2.0*f);
+                float a=fract(sin(dot(i,vec2(127.1,311.7)))*43758.5453);
+                float b=fract(sin(dot(i+vec2(1,0),vec2(127.1,311.7)))*43758.5453);
+                float c=fract(sin(dot(i+vec2(0,1),vec2(127.1,311.7)))*43758.5453);
+                float d=fract(sin(dot(i+vec2(1,1),vec2(127.1,311.7)))*43758.5453);
+                return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+            }
+            float cfbm(vec2 p){
+                float v=0.0,a=0.5;
+                mat2 r=mat2(0.8,0.6,-0.6,0.8);
+                for(int i=0;i<6;i++){v+=a*cnoise(p);p=r*p*2.0;a*=0.5;}
+                return v;
+            }
+            
+            void main(){
+                vec3 dir=normalize(vDir);
+                vec3 sd=normalize(uSunDir);
+                float ct=dot(dir,sd);
+                
+                // Rayleigh + Mie scattering
+                vec3 bR=vec3(5.5e-6,13.0e-6,22.4e-6)*uRay;
+                vec3 bM=vec3(21e-6)*uMie*uTurb;
+                float path=1.0/(max(dir.y,0.01)+0.15*exp(-dir.y*8.0));
+                vec3 tau=(bR+bM)*path*8000.0;
+                vec3 att=exp(-tau);
+                
+                float ct2=ct*ct;
+                float pR=0.75*(1.0+ct2);
+                float g=0.76,g2=g*g;
+                float pM=(1.0-g2)/pow(1.0+g2-2.0*ct*g,1.5)/(4.0*3.14159)*0.4;
+                
+                vec3 inscatter=(bR*pR+bM*pM)*3500.0*uSunCol*uSunInt;
+                vec3 col=inscatter*att;
+                
+                // Sun disk
+                float disk=smoothstep(0.9996,0.9999,ct)*uSunInt*6.0;
+                col+=uSunCol*disk*att;
+                
+                // Sun glow layers
+                col+=uSunCol*pow(max(ct,0.0),8.0)*0.35*uSunInt;
+                col+=uSunCol*pow(max(ct,0.0),32.0)*0.25*uSunInt;
+                col+=uSunCol*pow(max(ct,0.0),128.0)*0.5*uSunInt;
+                
+                // Horizon
+                col+=uSunCol*exp(-abs(dir.y)*5.0)*0.12*uSunInt;
+                
+                // Ground darkening
+                if(dir.y<0.0) col*=exp(dir.y*4.0);
+                
+                // Stars
+                float se=sd.y;
+                if(se<0.1 && dir.y>0.0){
+                    float sv=smoothstep(0.1,-0.15,se);
+                    vec3 sp=dir*600.0;
+                    vec3 id=floor(sp);
+                    float h=hash(id);
+                    if(h>0.993){
+                        vec3 fp=fract(sp)-0.5;
+                        float d=length(fp);
+                        float br=smoothstep(0.04,0.0,d)*(h-0.993)*140.0;
+                        br*=0.5+0.5*sin(uTime*(1.5+h*4.0)+h*60.0);
+                        // Star color variation
+                        vec3 starCol=mix(vec3(0.8,0.85,1.0),vec3(1.0,0.9,0.7),hash(id+1.0));
+                        col+=starCol*br*sv*dir.y;
+                    }
+                }
+                
+                // Clouds
+                if(dir.y>-0.05){
+                    vec2 cuv=dir.xz/(abs(dir.y)+0.15)*2.0;
+                    cuv+=uTime*0.008;
+                    float cloud=cfbm(cuv*1.5);
+                    cloud=smoothstep(0.38,0.65,cloud);
+                    cloud*=smoothstep(-0.05,0.2,dir.y);
+                    
+                    // Cloud lighting
+                    vec3 cloudCol=mix(vec3(0.85,0.87,0.9),uSunCol*0.6,pow(max(dot(dir,sd),0.0),2.0)*0.5);
+                    // Cloud self-shadowing
+                    float cshadow=cfbm(cuv*1.5+sd.xz*0.3);
+                    cloudCol*=0.7+0.3*cshadow;
+                    // Silver lining
+                    float lining=smoothstep(0.5,0.65,cloud)-smoothstep(0.65,0.72,cloud);
+                    cloudCol+=uSunCol*lining*0.6*uSunInt*0.3;
+                    
+                    col=mix(col,cloudCol,cloud*0.85);
+                }
+                
+                col=col/(1.0+col*0.12);
+                gl_FragColor=vec4(col,1.0);
+            }
+        `,
+        side: THREE.BackSide, depthWrite: false
+    });
+    skyDome = new THREE.Mesh(geo, mat);
+    scene.add(skyDome);
+}
+
+// ===================== TERRAIN =====================
+function createTerrain() {
+    if (terrain) scene.remove(terrain);
+
+    const size = 130, res = 300;
+    const geo = new THREE.PlaneGeometry(size, size, res, res);
+    geo.rotateX(-Math.PI / 2);
+
+    const verts = geo.attributes.position.array;
+    for (let i = 0; i < verts.length; i += 3) {
+        verts[i + 1] = getHeight(verts[i], verts[i + 2]);
+    }
+    geo.computeVertexNormals();
+
+    // Generate splat map + texture atlas on canvas
+    const tSize = 2048;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = tSize;
+    const ctx = cv.getContext('2d');
+
+    // Generate material textures
+    const grassTex = genTexture('grass', 512);
+    const rockTex = genTexture('rock', 512);
+    const dirtTex = genTexture('dirt', 512);
+    const sandTex = genTexture('sand', 512);
+    const snowTex = genTexture('snow', 512);
+    const normTex = genTexture('normal', 512);
+    const roughTex = genTexture('roughness', 512);
+
+    // Create splat map
+    const splatCv = document.createElement('canvas');
+    splatCv.width = splatCv.height = tSize;
+    const sCtx = splatCv.getContext('2d');
+    const sImg = sCtx.createImageData(tSize, tSize);
+    const sD = sImg.data;
+
+    const normals = geo.attributes.normal.array;
+
+    for (let i = 0; i < verts.length; i += 3) {
+        const x = verts[i], z = verts[i + 2], h = verts[i + 1];
+        const ny = normals[i + 1];
+        const slope = 1 - ny;
+
+        const u = (x / size + 0.5);
+        const v = (z / size + 0.5);
+        const px = Math.floor(u * (tSize - 1));
+        const py = Math.floor(v * (tSize - 1));
+        const idx = (py * tSize + px) * 4;
+
+        // Material weights
+        let wGrass = 0, wRock = 0, wDirt = 0, wSand = 0, wSnow = 0;
+
+        // Shore sand
+        if (h < 1.0 && h > -4) {
+            wSand = Math.max(0, 1 - Math.abs(h) * 0.6);
+            wSand = Math.pow(wSand, 1.5);
+        }
+
+        // Rock on steep slopes
+        if (slope > 0.25) {
+            wRock = Math.min(1, (slope - 0.25) / 0.25);
+            wRock = Math.pow(wRock, 0.8);
+        }
+
+        // Snow on high areas with low slope
+        if (h > 16) {
+            wSnow = Math.min(1, (h - 16) / 6) * Math.max(0, 1 - slope * 3);
+            wSnow = Math.pow(wSnow, 1.2);
+        }
+
+        // Grass / dirt
+        const remaining = Math.max(0, 1 - wRock - wSand - wSnow);
+        const grassNoise = noise.fbm(x * 0.05, z * 0.05, 100, 3, 2.0, 0.5) * 0.5 + 0.5;
+        if (slope < 0.4) {
+            wGrass = remaining * (0.6 + grassNoise * 0.4);
+            wDirt = remaining * (1 - (0.6 + grassNoise * 0.4));
+        } else {
+            wDirt = remaining;
+        }
+
+        // Normalize
+        const total = wGrass + wRock + wDirt + wSand + wSnow;
+        if (total > 0) { wGrass /= total; wRock /= total; wDirt /= total; wSand /= total; wSnow /= total; }
+
+        // Encode splat: R=grass, G=rock, B=dirt, A=sand (snow derived)
+        sD[idx] = Math.min(255, wGrass * 255);
+        sD[idx + 1] = Math.min(255, wRock * 255);
+        sD[idx + 2] = Math.min(255, wDirt * 255);
+        sD[idx + 3] = Math.min(255, wSand * 255);
+    }
+    sCtx.putImageData(sImg, 0, 0);
+    const splatTex = new THREE.CanvasTexture(splatCv);
+    splatTex.wrapS = splatTex.wrapT = THREE.ClampToEdgeWrapping;
+
+    // Snow mask (derived from height)
+    const snowCv = document.createElement('canvas');
+    snowCv.width = snowCv.height = tSize;
+    const snCtx = snowCv.getContext('2d');
+    const snImg = snCtx.createImageData(tSize, tSize);
+    const snD = snImg.data;
+    for (let i = 0; i < verts.length; i += 3) {
+        const x = verts[i], z = verts[i + 2], h = verts[i + 1];
+        const ny = normals[i + 1];
+        const slope = 1 - ny;
+        const u = Math.floor((x / size + 0.5) * (tSize - 1));
+        const v = Math.floor((z / size + 0.5) * (tSize - 1));
+        if (u >= 0 && u < tSize && v >= 0 && v < tSize) {
+            let wSnow = 0;
+            if (h > 16) wSnow = Math.min(1, (h - 16) / 6) * Math.max(0, 1 - slope * 3);
+            const idx = (v * tSize + u) * 4;
+            snD[idx] = snD[idx + 1] = snD[idx + 2] = Math.min(255, wSnow * 255);
+            snD[idx + 3] = 255;
+        }
+    }
+    snCtx.putImageData(snImg, 0, 0);
+    const snowMask = new THREE.CanvasTexture(snowCv);
+    snowMask.wrapS = snowMask.wrapT = THREE.ClampToEdgeWrapping;
+
+    // Heightmap for AO approximation
+    const hCv = document.createElement('canvas');
+    hCv.width = hCv.height = tSize;
+    const hCtx = hCv.getContext('2d');
+    const hImg = hCtx.createImageData(tSize, tSize);
+    const hD = hImg.data;
+    let minH = Infinity, maxH = -Infinity;
+    for (let i = 0; i < verts.length; i += 3) { minH = Math.min(minH, verts[i + 1]); maxH = Math.max(maxH, verts[i + 1]); }
+    for (let i = 0; i < verts.length; i += 3) {
+        const x = verts[i], z = verts[i + 2], h = verts[i + 1];
+        const u = Math.floor((x / size + 0.5) * (tSize - 1));
+        const v = Math.floor((z / size + 0.5) * (tSize - 1));
+        if (u >= 0 && u < tSize && v >= 0 && v < tSize) {
+            const val = (h - minH) / (maxH - minH);
+            const idx = (v * tSize + u) * 4;
+            hD[idx] = hD[idx + 1] = hD[idx + 2] = val * 255;
+            hD[idx + 3] = 255;
+        }
+    }
+    hCtx.putImageData(hImg, 0, 0);
+    const heightTex = new THREE.CanvasTexture(hCv);
+    heightTex.wrapS = heightTex.wrapT = THREE.ClampToEdgeWrapping;
+
+    // Multi-texture shader material
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            uGrass: { value: grassTex },
+            uRock: { value: rockTex },
+            uDirt: { value: dirtTex },
+            uSand: { value: sandTex },
+            uSnow: { value: snowTex },
+            uNormal: { value: normTex },
+            uRough: { value: roughTex },
+            uSplat: { value: splatTex },
+            uSnowMask: { value: snowMask },
+            uHeight: { value: heightTex },
+            uSunDir: { value: new THREE.Vector3(0.5, 0.3, 0.5) },
+            uSunCol: { value: new THREE.Vector3(1, 0.72, 0.4) },
+            uSunInt: { value: 4.0 },
+            uAmbCol: { value: new THREE.Vector3(0.3, 0.25, 0.2) },
+            uAmbInt: { value: 0.12 },
+            uFogCol: { value: new THREE.Vector3(0.72, 0.55, 0.35) },
+            uFogD: { value: 0.003 },
+            uCamPos: { value: new THREE.Vector3() }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            varying vec3 vWorldPos;
+            varying vec3 vNormal;
+            varying float vHeight;
+            varying vec4 vScreenPos;
+            
+            void main(){
+                vUv = uv;
+                vNormal = normalize(normalMatrix * normal);
+                vec4 wp = modelMatrix * vec4(position, 1.0);
+                vWorldPos = wp.xyz;
+                vHeight = position.y;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                vScreenPos = gl_Position;
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D uGrass, uRock, uDirt, uSand, uSnow, uNormal, uRough, uSplat, uSnowMask, uHeight;
+            uniform vec3 uSunDir, uSunCol, uAmbCol, uFogCol;
+            uniform float uSunInt, uAmbInt, uFogD;
+            uniform vec3 uCamPos;
+            
+            varying vec2 vUv;
+            varying vec3 vWorldPos;
+            varying vec3 vNormal;
+            varying float vHeight;
+            varying vec4 vScreenPos;
+            
+            vec3 getNormalMap(sampler2D tex, vec2 uv, float strength) {
+                vec3 n = texture2D(tex, uv).xyz * 2.0 - 1.0;
+                n.xy *= strength;
+                return normalize(n);
+            }
+            
+            void main(){
+                vec4 splat = texture2D(uSplat, vUv);
+                float wGrass = splat.r;
+                float wRock = splat.g;
+                float wDirt = splat.b;
+                float wSand = splat.a;
+                float wSnow = texture2D(uSnowMask, vUv).r;
+                
+                // Normalize weights
+                float total = wGrass + wRock + wDirt + wSand + wSnow;
+                if(total > 0.0) { wGrass/=total; wRock/=total; wDirt/=total; wSand/=total; wSnow/=total; }
+                
+                // Tile UVs for detail
+                vec2 tUv = vUv * 40.0;
+                vec2 tUv2 = vUv * 25.0;
+                vec2 tUv3 = vUv * 30.0;
+                
+                // Sample textures
+                vec3 cGrass = texture2D(uGrass, tUv).rgb;
+                vec3 cRock = texture2D(uRock, tUv2).rgb;
+                vec3 cDirt = texture2D(uDirt, tUv3).rgb;
+                vec3 cSand = texture2D(uSand, tUv * 35.0).rgb;
+                vec3 cSnow = texture2D(uSnow, tUv * 15.0).rgb;
+                
+                // Blend colors
+                vec3 albedo = cGrass * wGrass + cRock * wRock + cDirt * wDirt + cSand * wSand + cSnow * wSnow;
+                
+                // Normal mapping
+                vec3 nGrass = getNormalMap(uNormal, tUv, 1.0);
+                vec3 nRock = getNormalMap(uNormal, tUv2, 1.5);
+                vec3 nDirt = getNormalMap(uNormal, tUv3, 0.8);
+                vec3 nSand = getNormalMap(uNormal, tUv * 35.0, 0.5);
+                vec3 nSnow = getNormalMap(uNormal, tUv * 15.0, 0.3);
+                
+                vec3 texNormal = nGrass * wGrass + nRock * wRock + nDirt * wDirt + nSand * wSand + nSnow * wSnow;
+                
+                // Combine with vertex normal
+                vec3 N = normalize(vNormal);
+                vec3 T = normalize(cross(N, vec3(0,1,0)));
+                if(length(cross(N, vec3(0,1,0))) < 0.001) T = normalize(cross(N, vec3(1,0,0)));
+                vec3 B = normalize(cross(N, T));
+                mat3 TBN = mat3(T, B, N);
+                N = normalize(TBN * texNormal);
+                
+                // Roughness
+                float roughness = texture2D(uRough, tUv).r * wGrass +
+                                  texture2D(uRough, tUv2).r * wRock +
+                                  texture2D(uRough, tUv3).r * wDirt +
+                                  0.6 * wSand +
+                                  0.3 * wSnow;
+                roughness = clamp(roughness, 0.1, 0.95);
+                
+                // PBR Lighting
+                vec3 V = normalize(uCamPos - vWorldPos);
+                vec3 L = normalize(uSunDir);
+                vec3 H = normalize(V + L);
+                
+                float NdotL = max(dot(N, L), 0.0);
+                float NdotV = max(dot(N, V), 0.0);
+                float NdotH = max(dot(N, H), 0.0);
+                float VdotH = max(dot(V, H), 0.0);
+                
+                // Fresnel (Schlick)
+                vec3 F0 = mix(vec3(0.04), albedo, 0.0); // Non-metallic
+                vec3 F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+                
+                // GGX specular
+                float a = roughness * roughness;
+                float a2 = a * a;
+                float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+                float D = a2 / (3.14159 * denom * denom);
+                
+                // Smith geometry
+                float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+                float G1v = NdotV / (NdotV * (1.0 - k) + k);
+                float G1l = NdotL / (NdotL * (1.0 - k) + k);
+                float G = G1v * G1l;
+                
+                // Specular
+                vec3 spec = (F * D * G) / (4.0 * NdotV * NdotL + 0.001);
+                
+                // Diffuse (Lambert)
+                vec3 diff = albedo * (1.0 - F) / 3.14159;
+                
+                // Direct light
+                vec3 direct = (diff + spec) * uSunCol * uSunInt * NdotL;
+                
+                // Ambient (hemisphere)
+                float up = N.y * 0.5 + 0.5;
+                vec3 ambCol = mix(uAmbCol * 0.5, uAmbCol, up);
+                vec3 ambient = albedo * ambCol * uAmbInt;
+                
+                // Ambient occlusion from heightmap
+                float ao = texture2D(uHeight, vUv).r;
+                ao = 0.5 + ao * 0.5; // Remap
+                // Simple slope-based AO
+                float slopeAO = smoothstep(0.0, 0.4, vNormal.y);
+                ao *= mix(0.5, 1.0, slopeAO);
+                ambient *= ao;
+                direct *= mix(0.7, 1.0, ao);
+                
+                // Subsurface for grass
+                float sss = wGrass * pow(max(dot(V, -L + N * 0.5), 0.0), 3.0) * 0.08;
+                
+                vec3 color = direct + ambient + albedo * sss * uSunCol * uSunInt;
+                
+                // Rim light
+                float rim = pow(1.0 - NdotV, 4.0) * 0.08;
+                color += uSunCol * rim * uSunInt * 0.3;
+                
+                // Fog
+                float dist = length(vWorldPos - uCamPos);
+                float fogFactor = 1.0 - exp(-dist * uFogD);
+                // Height-based fog
+                float hFog = exp(-max(vWorldPos.y, 0.0) * 0.05) * 0.3;
+                fogFactor = max(fogFactor, hFog * fogFactor);
+                color = mix(color, uFogCol, fogFactor);
+                
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `
+    });
+
+    terrain = new THREE.Mesh(geo, mat);
+    terrain.receiveShadow = true;
+    terrain.castShadow = true;
+    scene.add(terrain);
+
+    // Count triangles
+    totalTris = (res * res * 2);
+}
+
+// ===================== WATER =====================
+function createWater() {
+    if (water) scene.remove(water);
+    const geo = new THREE.PlaneGeometry(130, 130, 200, 200);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            uTime: { value: 0 }, uSunDir: { value: new THREE.Vector3() },
+            uSunCol: { value: new THREE.Vector3(1, 0.72, 0.4) }, uSunInt: { value: 4.0 },
+            uWCol: { value: new THREE.Vector3(0.01, 0.06, 0.1) },
+            uWScat: { value: new THREE.Vector3(0.04, 0.18, 0.15) },
+            uWAmp: { value: 0.3 }, uWSpd: { value: 0.7 },
+            uCamPos: { value: new THREE.Vector3() },
+            uSkyCol: { value: new THREE.Vector3(0.5, 0.5, 0.7) },
+            uHorCol: { value: new THREE.Vector3(0.72, 0.55, 0.35) },
+            uFogCol: { value: new THREE.Vector3(0.72, 0.55, 0.35) },
+            uFogD: { value: 0.003 }
+        },
+        vertexShader: `
+            uniform float uTime,uWAmp,uWSpd;
+            varying vec3 vWP; varying vec3 vN; varying float vWH;
+            
+            vec3 gerstner(vec2 p,float s,float l,vec2 d,float sp,float t){
+                float k=6.28318/l,c=sqrt(9.81/k);vec2 dd=normalize(d);
+                float f=k*(dot(dd,p)-c*sp*t);float a=s/k;
+                return vec3(dd.x*a*cos(f),a*sin(f),dd.y*a*cos(f));
+            }
+            vec3 gerstnerN(vec2 p,float s,float l,vec2 d,float sp,float t){
+                float k=6.28318/l,c=sqrt(9.81/k);vec2 dd=normalize(d);
+                float f=k*(dot(dd,p)-c*sp*t);float a=s/k;
+                return vec3(-dd.x*k*a*sin(f),a*k*cos(f),-dd.y*k*a*sin(f));
+            }
+            
+            void main(){
+                vec3 p=position;float t=uTime*uWSpd,a=uWAmp;
+                vec3 disp=vec3(0.0),n=vec3(0.0,1.0,0.0);
+                
+                disp+=gerstner(p.xz,0.18*a,16.0,vec2(1.0,0.2),1.0,t);
+                n+=gerstnerN(p.xz,0.18*a,16.0,vec2(1.0,0.2),1.0,t);
+                disp+=gerstner(p.xz,0.14*a,10.0,vec2(-0.4,1.0),0.85,t);
+                n+=gerstnerN(p.xz,0.14*a,10.0,vec2(-0.4,1.0),0.85,t);
+                disp+=gerstner(p.xz,0.1*a,6.0,vec2(0.7,-0.5),1.2,t);
+                n+=gerstnerN(p.xz,0.1*a,6.0,vec2(0.7,-0.5),1.2,t);
+                disp+=gerstner(p.xz,0.06*a,3.5,vec2(-0.6,0.8),1.6,t);
+                n+=gerstnerN(p.xz,0.06*a,3.5,vec2(-0.6,0.8),1.6,t);
+                disp+=gerstner(p.xz,0.04*a,2.0,vec2(0.9,0.3),2.2,t);
+                n+=gerstnerN(p.xz,0.04*a,2.0,vec2(0.9,0.3),2.2,t);
+                disp+=gerstner(p.xz,0.025*a,1.2,vec2(-0.7,-0.5),2.8,t);
+                n+=gerstnerN(p.xz,0.025*a,1.2,vec2(-0.7,-0.5),2.8,t);
+                
+                p.xyz+=disp;vWH=disp.y;vN=normalize(n);
+                vWP=(modelMatrix*vec4(p,1.0)).xyz;
+                gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float uTime,uWAmp,uSunInt,uFogD;
+            uniform vec3 uSunDir,uSunCol,uWCol,uWScat,uCamPos,uSkyCol,uHorCol,uFogCol;
+            varying vec3 vWP,vN; varying float vWH;
+            
+            float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+            float cnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+                return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);}
+            float cfbm(vec2 p){float v=0.0,a=0.5;mat2 r=mat2(0.8,0.6,-0.6,0.8);
+                for(int i=0;i<5;i++){v+=a*cnoise(p);p=r*p*2.0;a*=0.5;}return v;}
+            
+            void main(){
+                vec3 V=normalize(uCamPos-vWP),N=normalize(vN),L=normalize(uSunDir);
+                
+                // Fresnel
+                float ct=max(dot(V,N),0.0);
+                float F0=0.02;
+                float fresnel=F0+(1.0-F0)*pow(1.0-ct,5.0);
+                
+                // Depth
+                float dc=length(vWP.xz);
+                float df=smoothstep(6.0,28.0,dc);
+                vec3 body=mix(uWScat,uWCol,df);
+                
+                // SSS
+                float sss=pow(max(dot(V,-L),0.0),4.0)*0.18;
+                sss+=pow(max(dot(V,L-N*0.3),0.0),2.0)*0.06;
+                vec3 sssC=uWScat*2.5;
+                
+                // Sky reflection
+                vec3 rD=reflect(-V,N);
+                float rY=max(rD.y,0.0);
+                vec3 skyR=mix(uHorCol,uSkyCol,pow(rY,0.4));
+                
+                // Specular
+                vec3 H=normalize(L+V);
+                float s1=pow(max(dot(N,H),0.0),512.0)*3.5;
+                float s2=pow(max(dot(N,H),0.0),64.0)*0.5;
+                float s3=pow(max(dot(N,H),0.0),16.0)*0.15;
+                vec3 spec=uSunCol*uSunInt*(s1+s2+s3);
+                
+                // Caustics
+                vec2 cu=vWP.xz*0.12+uTime*0.08;
+                float caust=cfbm(cu)*cfbm(cu*1.5+3.0);
+                caust=pow(caust,2.0)*0.12*(1.0-df*0.7);
+                
+                // Foam
+                float foam=smoothstep(0.1*uWAmp,0.22*uWAmp,vWH);
+                foam*=smoothstep(0.3,0.6,cfbm(vWP.xz*3.0+uTime*0.4));
+                float shore=smoothstep(23.0,17.0,dc)*smoothstep(11.0,16.0,dc);
+                shore*=0.5+0.5*sin(vWP.x*4.0+uTime*2.5);
+                shore*=0.5+0.5*cos(vWP.z*3.0+uTime*1.8);
+                foam=max(foam,shore*0.45);
+                
+                // Combine
+                vec3 col=mix(body,skyR,fresnel);
+                col+=sssC*sss;
+                col+=spec;
+                col+=uWScat*caust;
+                col=mix(col,vec3(0.82,0.88,0.93),foam*0.55);
+                
+                // Fog
+                float dist=length(vWP-uCamPos);
+                float fog=1.0-exp(-dist*uFogD);
+                col=mix(col,uFogCol,fog);
+                
+                // Edge fade
+                float fade=smoothstep(60.0,52.0,dc);
+                float alpha=mix(0.85,1.0,fresnel)*fade;
+                alpha=mix(alpha,1.0,foam*0.5);
+                
+                gl_FragColor=vec4(col,alpha);
+            }
+        `,
+        transparent: true, side: THREE.DoubleSide, depthWrite: false
+    });
+    water = new THREE.Mesh(geo, mat);
+    water.position.y = -1.8;
+    scene.add(water);
+    totalTris += 200 * 200 * 2;
+}
+
+// ===================== VEGETATION =====================
+function createVegetation() {
+    // Grass blades using InstancedMesh
+    createGrass();
+    // Trees
+    createTrees();
+}
+
+function createGrass() {
+    if (grassMesh) scene.remove(grassMesh);
+    
+    // Grass blade geometry
+    const bladeGeo = new THREE.BufferGeometry();
+    const bladeVerts = new Float32Array([
+        -0.04, 0, 0,  0.04, 0, 0,  -0.02, 0.3, 0,
+        0.04, 0, 0,  0.02, 0.3, 0,  -0.02, 0.3, 0,
+        -0.02, 0.3, 0,  0.02, 0.3, 0,  0.0, 0.55, 0
+    ]);
+    bladeGeo.setAttribute('position', new THREE.BufferAttribute(bladeVerts, 3));
+    bladeGeo.computeVertexNormals();
+
+    const grassCount = 25000;
+    const grassMat = new THREE.ShaderMaterial({
+        uniforms: {
+            uSunDir: { value: new THREE.Vector3() },
+            uSunCol: { value: new THREE.Vector3(1, 0.72, 0.4) },
+            uSunInt: { value: 4.0 },
+            uTime: { value: 0 },
+            uWind: { value: 0.4 },
+            uFogCol: { value: new THREE.Vector3(0.72, 0.55, 0.35) },
+            uFogD: { value: 0.003 },
+            uCamPos: { value: new THREE.Vector3() }
+        },
+        vertexShader: `
+            uniform float uTime, uWind;
+            varying vec3 vColor;
+            varying vec3 vNormal;
+            varying vec3 vWorldPos;
+            varying float vHeight;
+            
+            void main(){
+                vec3 pos = position;
+                vec4 worldPos = instanceMatrix * vec4(pos, 1.0);
+                
+                // Wind animation - only affect top of blade
+                float windFactor = pos.y / 0.55; // 0 at base, 1 at tip
+                windFactor = windFactor * windFactor;
+                float windX = sin(uTime * 2.0 + worldPos.x * 0.5 + worldPos.z * 0.3) * 0.15 * uWind;
+                float windZ = cos(uTime * 1.7 + worldPos.x * 0.3 + worldPos.z * 0.5) * 0.1 * uWind;
+                worldPos.x += windX * windFactor;
+                worldPos.z += windZ * windFactor;
+                
+                vHeight = pos.y / 0.55;
+                
+                // Color variation
+                float variation = fract(sin(dot(worldPos.xz, vec2(12.9898, 78.233))) * 43758.5453);
+                vec3 baseGreen = mix(vec3(0.12, 0.22, 0.04), vec3(0.2, 0.35, 0.08), variation);
+                // Tip is lighter
+                vColor = mix(baseGreen, baseGreen * 1.4, vHeight);
+                // Dry grass tips
+                if(variation > 0.7) vColor = mix(vColor, vec3(0.3, 0.28, 0.12), (variation-0.7)*3.0 * vHeight);
+                
+                vWorldPos = worldPos.xyz;
+                vNormal = normalize((instanceMatrix * vec4(normal, 0.0)).xyz);
+                
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 uSunDir, uSunCol, uFogCol, uCamPos;
+            uniform float uSunInt, uFogD;
+            varying vec3 vColor, vNormal, vWorldPos;
+            varying float vHeight;
+            
+            void main(){
+                vec3 N = normalize(vNormal);
+                vec3 L = normalize(uSunDir);
+                vec3 V = normalize(uCamPos - vWorldPos);
+                
+                float NdotL = max(dot(N, L), 0.0);
+                
+                // Subsurface transmission
+                float sss = pow(max(dot(V, -L + N * 0.5), 0.0), 3.0) * 0.3 * vHeight;
+                
+                vec3 diff = vColor * (NdotL * 0.6 + 0.4);
+                vec3 col = diff + vColor * sss;
+                col *= uSunCol * uSunInt * 0.25 + vec3(0.15);
+                
+                // Fog
+                float dist = length(vWorldPos - uCamPos);
+                float fog = 1.0 - exp(-dist * uFogD);
+                col = mix(col, uFogCol, fog);
+                
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `,
+        side: THREE.DoubleSide
+    });
+
+    grassMesh = new THREE.InstancedMesh(bladeGeo, grassMat, grassCount);
+    const dummy = new THREE.Object3D();
+    let placed = 0;
+
+    for (let i = 0; i < grassCount * 3 && placed < grassCount; i++) {
+        const x = (Math.random() - 0.5) * 100;
+        const z = (Math.random() - 0.5) * 100;
+        const h = getHeight(x, z);
+
+        if (h < 0.3 || h > 14) continue;
+        const dist = Math.sqrt(x * x + z * z);
+        if (dist < 20) continue;
+
+        // Check slope
+        const eps = 0.5;
+        const hL = getHeight(x - eps, z), hR = getHeight(x + eps, z);
+        const hD = getHeight(x, z - eps), hU = getHeight(x, z + eps);
+        const slope = Math.sqrt((hR - hL) * (hR - hL) + (hU - hD) * (hU - hD)) / (2 * eps);
+        if (slope > 0.6) continue;
+
+        dummy.position.set(x, h, z);
+        dummy.rotation.y = Math.random() * Math.PI * 2;
+        const s = 0.7 + Math.random() * 0.8;
+        dummy.scale.set(s, s * (0.8 + Math.random() * 0.5), s);
+        dummy.updateMatrix();
+        grassMesh.setMatrixAt(placed, dummy.matrix);
+        placed++;
+    }
+    grassMesh.count = placed;
+    grassMesh.instanceMatrix.needsUpdate = true;
+    grassMesh.frustumCulled = false;
+    scene.add(grassMesh);
+    totalTris += placed * 3;
+}
+
+function createTrees() {
+    treeMeshes.forEach(t => scene.remove(t));
+    treeMeshes = [];
+
+    // Create tree trunk + foliage as merged geometry
+    for (let i = 0; i < 60; i++) {
+        const x = (Math.random() - 0.5) * 95;
+        const z = (Math.random() - 0.5) * 95;
+        const h = getHeight(x, z);
+
+        if (h < 1.5 || h > 16) continue;
+        const dist = Math.sqrt(x * x + z * z);
+        if (dist < 22) continue;
+
+        // Slope check
+        const eps = 1;
+        const slope = Math.sqrt((getHeight(x + eps, z) - getHeight(x - eps, z)) ** 2 + (getHeight(x, z + eps) - getHeight(x, z - eps)) ** 2) / (2 * eps);
+        if (slope > 0.5) continue;
+
+        const tree = new THREE.Group();
+
+        // Trunk
+        const tHeight = 2.5 + Math.random() * 2;
+        const trunkGeo = new THREE.CylinderGeometry(0.08, 0.18, tHeight, 6);
+        const trunkMat = new THREE.MeshStandardMaterial({
+            color: new THREE.Color(0.18 + Math.random() * 0.05, 0.12 + Math.random() * 0.03, 0.06),
+            roughness: 0.95, metalness: 0.0
+        });
+        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        trunk.position.y = tHeight / 2;
+        trunk.castShadow = true;
+        trunk.receiveShadow = true;
+        tree.add(trunk);
+
+        // Foliage - multiple cones for pine tree look
+        const layers = 4 + Math.floor(Math.random() * 3);
+        for (let l = 0; l < layers; l++) {
+            const radius = (1.8 - l * 0.25) * (0.8 + Math.random() * 0.4);
+            const coneH = 1.5 + Math.random() * 0.5;
+            const fGeo = new THREE.ConeGeometry(radius, coneH, 7);
+            
+            // Deform for natural look
+            const fVerts = fGeo.attributes.position.array;
+            for (let v = 0; v < fVerts.length; v += 3) {
+                const n = noise.fbm(fVerts[v] * 2 + x, fVerts[v + 1] * 2, fVerts[v + 2] * 2 + z, 2, 2.0, 0.5);
+                fVerts[v] += n * 0.15;
+                fVerts[v + 2] += n * 0.15;
+            }
+            fGeo.computeVertexNormals();
+
+            const green = new THREE.Color();
+            green.setHSL(0.28 + Math.random() * 0.06, 0.35 + Math.random() * 0.2, 0.1 + Math.random() * 0.08 + l * 0.015);
+            const fMat = new THREE.MeshStandardMaterial({
+                color: green, roughness: 0.85, metalness: 0.0, flatShading: true
+            });
+            const foliage = new THREE.Mesh(fGeo, fMat);
+            foliage.position.y = tHeight * 0.6 + l * 1.0;
+            foliage.rotation.y = Math.random() * Math.PI;
+            foliage.castShadow = true;
+            foliage.receiveShadow = true;
+            tree.add(foliage);
+        }
+
+        tree.position.set(x, h, z);
+        const sc = 0.7 + Math.random() * 0.8;
+        tree.scale.setScalar(sc);
+        tree.rotation.y = Math.random() * Math.PI * 2;
+        tree.userData.baseX = x;
+        tree.userData.baseZ = z;
+        tree.userData.phase = Math.random() * Math.PI * 2;
+        scene.add(tree);
+        treeMeshes.push(tree);
+    }
+}
+
+// ===================== LIGHTS =====================
+function setupLights() {
+    ambLight = new THREE.AmbientLight(0xffffff, 0.12);
+    scene.add(ambLight);
+
+    sunLight = new THREE.DirectionalLight(0xffffff, 4.0);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(4096, 4096);
+    sunLight.shadow.camera.near = 1;
+    sunLight.shadow.camera.far = 200;
+    const s = 65;
+    sunLight.shadow.camera.left = -s;
+    sunLight.shadow.camera.right = s;
+    sunLight.shadow.camera.top = s;
+    sunLight.shadow.camera.bottom = -s;
+    sunLight.shadow.bias = -0.0002;
+    sunLight.shadow.normalBias = 0.04;
+    scene.add(sunLight);
+    scene.add(sunLight.target);
+
+    hemiLight = new THREE.HemisphereLight(0xffffff, 0x445522, 0.25);
+    scene.add(hemiLight);
+
+    lightningLight = new THREE.PointLight(0xeeeeff, 0, 400);
+    lightningLight.position.set(0, 80, 0);
+    scene.add(lightningLight);
+}
+
+// ===================== EVENTS =====================
+function setupEvents() {
+    addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+    });
+
+    renderer.domElement.addEventListener('mousedown', e => { isDrag = true; prevM = { x: e.clientX, y: e.clientY }; });
+    renderer.domElement.addEventListener('mousemove', e => {
+        if (!isDrag) return;
+        tgtT -= (e.clientX - prevM.x) * 0.003;
+        tgtP = Math.max(0.05, Math.min(1.3, tgtP + (e.clientY - prevM.y) * 0.003));
+        prevM = { x: e.clientX, y: e.clientY };
+    });
+    renderer.domElement.addEventListener('mouseup', () => isDrag = false);
+    renderer.domElement.addEventListener('mouseleave', () => isDrag = false);
+    renderer.domElement.addEventListener('wheel', e => { tgtD = Math.max(12, Math.min(120, tgtD + e.deltaY * 0.05)); });
+
+    renderer.domElement.addEventListener('touchstart', e => { if (e.touches.length === 1) { isDrag = true; prevM = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } });
+    renderer.domElement.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (!isDrag || e.touches.length !== 1) return;
+        tgtT -= (e.touches[0].clientX - prevM.x) * 0.003;
+        tgtP = Math.max(0.05, Math.min(1.3, tgtP + (e.touches[0].clientY - prevM.y) * 0.003));
+        prevM = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }, { passive: false });
+    renderer.domElement.addEventListener('touchend', () => isDrag = false);
+}
+
+// ===================== PRESETS =====================
+function setPreset(name) {
+    preset = name;
+    tgt = cp(name);
+    document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+}
+
+function regen() {
+    seed = Math.random() * 99999 | 0;
+    noise = new Noise(seed);
+    createTerrain();
+    createWater();
+    createVegetation();
+}
+
+function lerpP(dt) {
+    const s = 1.8 * dt;
+    for (let k in tgt) {
+        if (Array.isArray(cur[k])) { for (let i = 0; i < cur[k].length; i++) cur[k][i] += (tgt[k][i] - cur[k][i]) * s; }
+        else cur[k] += (tgt[k] - cur[k]) * s;
+    }
+}
+
+function applyP() {
+    const p = cur;
+    const sd = new THREE.Vector3(
+        Math.cos(p.sunAz) * Math.cos(p.sunEl),
+        Math.sin(p.sunEl),
+        Math.sin(p.sunAz) * Math.cos(p.sunEl)
+    ).normalize();
+
+    if (skyDome) {
+        const u = skyDome.material.uniforms;
+        u.uSunDir.value.copy(sd);
+        u.uTurb.value = p.turb; u.uRay.value = p.ray; u.uMie.value = p.mie;
+        u.uSunInt.value = p.sunInt; u.uSunCol.value.set(...p.sunCol);
+    }
+    if (water) {
+        const u = water.material.uniforms;
+        u.uSunDir.value.copy(sd); u.uSunCol.value.set(...p.sunCol); u.uSunInt.value = p.sunInt;
+        u.uWCol.value.set(...p.wCol); u.uWScat.value.set(...p.wScat);
+        u.uWAmp.value = p.wAmp; u.uWSpd.value = p.wSpd;
+        u.uSkyCol.value.set(p.sunCol[0] * 0.3 + 0.2, p.sunCol[1] * 0.3 + 0.3, p.sunCol[2] * 0.3 + 0.4);
+        u.uHorCol.value.set(...p.fogC); u.uFogCol.value.set(...p.fogC); u.uFogD.value = p.fogD;
+    }
+    if (terrain) {
+        const u = terrain.material.uniforms;
+        u.uSunDir.value.copy(sd); u.uSunCol.value.set(...p.sunCol); u.uSunInt.value = p.sunInt;
+        u.uAmbCol.value.set(...p.ambCol); u.uAmbInt.value = p.ambInt;
+        u.uFogCol.value.set(...p.fogC); u.uFogD.value = p.fogD;
+    }
+    if (grassMesh) {
+        const u = grassMesh.material.uniforms;
+        u.uSunDir.value.copy(sd); u.uSunCol.value.set(...p.sunCol); u.uSunInt.value = p.sunInt;
+        u.uWind.value = p.wind; u.uFogCol.value.set(...p.fogC); u.uFogD.value = p.fogD;
+    }
+
+    sunLight.color.setRGB(...p.sunCol);
+    sunLight.intensity = p.sunInt;
+    sunLight.position.copy(sd).multiplyScalar(80);
+    ambLight.color.setRGB(...p.ambCol);
+    ambLight.intensity = p.ambInt;
+    hemiLight.color.setRGB(...p.hemiSky);
+    hemiLight.groundColor.setRGB(...p.hemiGnd);
+    hemiLight.intensity = p.hemiInt;
+    scene.fog.color.setRGB(...p.fogC);
+    scene.fog.density = p.fogD;
+    renderer.toneMappingExposure = p.exp;
+}
+
+// ===================== ANIMATE =====================
+let lTimer = 0;
+
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const time = clock.getElapsedTime();
+
+    fc++;
+    if (time - ft > 1) {
+        document.getElementById('fps').textContent = Math.round(fc / (time - ft)) + ' FPS';
+        document.getElementById('tris').textContent = (totalTris / 1000).toFixed(0) + 'K triangles';
+        fc = 0; ft = time;
+    }
+
+    lerpP(dt);
+    applyP();
+
+    // Camera
+    camT += (tgtT - camT) * 3 * dt;
+    camP += (tgtP - camP) * 3 * dt;
+    camD += (tgtD - camD) * 3 * dt;
+    if (!isDrag) tgtT += 0.0002;
+
+    camera.position.set(
+        Math.sin(camT) * Math.cos(camP) * camD,
+        Math.sin(camP) * camD + 5,
+        Math.cos(camT) * Math.cos(camP) * camD
+    );
+    camera.lookAt(0, 0, 0);
+
+    // Update shader time
+    if (skyDome) skyDome.material.uniforms.uTime.value = time;
+    if (water) { water.material.uniforms.uTime.value = time; water.material.uniforms.uCamPos.value.copy(camera.position); }
+    if (grassMesh) { grassMesh.material.uniforms.uTime.value = time; grassMesh.material.uniforms.uCamPos.value.copy(camera.position); }
+    if (terrain) terrain.material.uniforms.uCamPos.value.copy(camera.position);
+
+    // Tree wind
+    const ws = cur.wind;
+    treeMeshes.forEach((t, i) => {
+        const ph = t.userData.phase;
+        t.rotation.x = Math.sin(time * 1.2 + ph) * 0.015 * ws;
+        t.rotation.z = Math.cos(time * 0.9 + ph * 1.3) * 0.015 * ws;
+    });
+
+    // Lightning
+    if (preset === 'storm') {
+        lTimer -= dt;
+        if (lTimer <= 0 && Math.random() < 0.005) {
+            lightningLight.intensity = 20 + Math.random() * 30;
+            lightningLight.position.set((Math.random() - 0.5) * 100, 80, (Math.random() - 0.5) * 100);
+            lTimer = 0.05 + Math.random() * 0.2;
+        } else if (lTimer > 0) { lightningLight.intensity *= 0.7; }
+        else { lightningLight.intensity *= 0.92; }
+    } else { lightningLight.intensity *= 0.9; }
+
+    renderer.render(scene, camera);
+}
+
+init();
+</script>
+</body>
+</html>

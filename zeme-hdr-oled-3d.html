@@ -463,9 +463,7 @@
     setTimeout(signalReady, 100);
   }
 })();
-</script><script src="https://miniapps.ai/sdk/miniapps-ai-v1.js"></script><script src="https://cdn.jsdelivr.net/npm/three@0.136.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.136.0/examples/js/controls/OrbitControls.js"></script>
-  <style>
+</script><script src="https://miniapps.ai/sdk/miniapps-ai-v1.js"></script>    <style>
     html, body, #earth {
       width: 100%;
       height: 100%;
@@ -526,7 +524,19 @@
   <button id="download-html" type="button" aria-label="Stáhnout aplikaci jako HTML">
     Stáhnout HTML
   </button>
-  <script>
+  <script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+
     (() => {
       'use strict';
 
@@ -568,7 +578,7 @@
       });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setClearColor(0x000000, 1);
-      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.15;
       container.appendChild(renderer.domElement);
@@ -588,7 +598,7 @@
         'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
         (texture) => {
           texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-          texture.encoding = THREE.sRGBEncoding;
+          texture.colorSpace = THREE.SRGBColorSpace;
         }
       );
       const topologyTexture = textureLoader.load(

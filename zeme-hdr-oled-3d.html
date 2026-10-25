@@ -583,7 +583,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
       renderer.toneMappingExposure = 1.15;
       container.appendChild(renderer.domElement);
 
-      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.045;
       controls.enablePan = false;

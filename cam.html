@@ -1,0 +1,576 @@
+# Interaktivní simulátor optického lomu a aberace
+
+<!DOCTYPE html>
+<html lang="cs" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optický lom a chromatická aberace</title>
+    <!-- Tailwind CSS pro moderní kyberpunkový design -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        .custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+
+            background: #3b82f6;
+            cursor: pointer;
+            transition: background 0.15s ease-in-out;
+        }
+        .custom-slider::-webkit-slider-thumb:hover {
+            background: #60a5fa;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col font-sans overflow-x-hidden">
+
+    <!-- Hlavní kontejner -->
+    <div class="flex-1 flex flex-col lg:flex-row p-4 gap-6 max-w-7xl mx-auto w-full">
+        
+        <!-- Levý panel: Interaktivní plátno -->
+        <div class="flex-1 flex flex-col bg-gray-900/60 border border-gray-800 rounded-2xl p-4 shadow-2xl relative overflow-hidden backdrop-blur-sm min-h-[400px]">
+            <div class="flex justify-between items-center mb-3 z-10">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+
+                    <h2 class="text-sm font-semibold tracking-wider text-gray-400 uppercase">Živý optický náhled</h2>
+                </div>
+                <div id="statusMessage" class="text-xs text-blue-400 font-mono bg-blue-950/40 border border-blue-900/50 px-3 py-1 rounded-full">
+                    Inicializace obrazu...
+                </div>
+            </div>
+
+            <!-- Interaktivní WebGL plátno -->
+            <div class="flex-1 relative flex items-center justify-center bg-black/40 rounded-xl overflow-hidden min-h-[300px]">
+                <canvas id="glCanvas" class="max-w-full max-h-full object-contain cursor-crosshair transition-opacity duration-300 opacity-0"></canvas>
+                
+                <!-- Pokyny přímo na obrazovce -->
+                <div class="absolute bottom-3 left-3 bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-800 text-xs text-gray-400 pointer-events-none">
+                    🖱️ Kliknutím nebo tažením posouvejte střed optické deformace
+                </div>
+            </div>
+        </div>
+
+        <!-- Pravý panel: Ovládací prvky a fyzikální vysvětlení -->
+
+        <div class="w-full lg:w-96 flex flex-col gap-5 shrink-0">
+            
+            <!-- Volba vstupu -->
+            <div class="bg-gray-900/60 border border-gray-800 rounded-2xl p-4 shadow-xl backdrop-blur-sm">
+                <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider mb-3">Zdroj obrazu</h3>
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <button id="btnCamera" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5 shadow-lg shadow-blue-900/20">
+                        📷 Spustit kameru
+                    </button>
+                    <button id="btnUpload" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 active:bg-gray-700 text-gray-200 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5 border border-gray-700">
+                        📁 Nahrát soubor
+                    </button>
+                </div>
+                <input type="file" id="fileInput" accept="image/*,video/*" class="hidden">
+                <button id="btnResetDefault" class="w-full py-1.5 bg-gray-800/40 hover:bg-gray-800 text-gray-400 rounded-lg text-xs transition border border-gray-800">
+                    Obnovit výchozí optickou fotografii
+                </button>
+            </div>
+
+
+            <!-- Nastavení parametrů lomu -->
+            <div class="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm flex-1 flex flex-col justify-between">
+                <div class="space-y-5">
+                    <h3 class="text-sm font-bold text-gray-300 uppercase tracking-wider border-b border-gray-800 pb-2">Optické parametry</h3>
+
+                    <!-- Volba režimu -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Simulovaný objekt</label>
+                        <select id="selectMode" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500 transition">
+                            <option value="0">🔮 Kulová čočka / Sféra</option>
+                            <option value="1">🌊 Vodní vlnění (Dynamické)</option>
+                            <option value="2">💎 Krystalické fazety (Hranol)</option>
+                        </select>
+                    </div>
+
+                    <!-- Index lomu slider -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderIOR" class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Index lomu (IOR)</label>
+
+                            <span id="valIOR" class="text-sm font-mono font-bold text-blue-400 bg-blue-950/60 border border-blue-900/40 px-2 py-0.5 rounded">1.33</span>
+                        </div>
+                        <input type="range" id="sliderIOR" min="-2.0" max="3.0" step="0.01" value="1.33" class="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        
+                        <!-- Dynamická popiska varování/vysvětlení -->
+                        <div id="iorWarning" class="mt-2 text-[11px] leading-relaxed p-2 rounded-lg border">
+                            Načítání fyzikálního popisu...
+                        </div>
+                    </div>
+
+                    <!-- Chromatická aberace slider -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderAberration" class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Chromatická aberace</label>
+                            <span id="valAberration" class="text-sm font-mono font-bold text-pink-400 bg-pink-950/60 border border-pink-900/40 px-2 py-0.5 rounded">0.02</span>
+                        </div>
+                        <input type="range" id="sliderAberration" min="0.0" max="0.1" step="0.001" value="0.02" class="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-gray-500 mt-1 leading-tight">
+                            Simuluje rozklad vlnových délek světla (RGB kanálů) na rozhraní prostředí.
+
+                        </p>
+                    </div>
+
+                    <!-- Velikost čočky/efektu -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderRadius" class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Velikost ohniska</label>
+                            <span id="valRadius" class="text-sm font-mono text-gray-400">0.40</span>
+                        </div>
+                        <input type="range" id="sliderRadius" min="0.1" max="0.8" step="0.01" value="0.40" class="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                    </div>
+                </div>
+
+                <!-- Info Box na dně panelu -->
+                <div id="errorDisplay" class="hidden mt-4 p-3 bg-red-950/40 border border-red-900/50 rounded-xl text-xs text-red-400 font-mono"></div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Skryté HTML5 elementy pro zachytávání médií -->
+    <video id="videoElement" autoplay muted playsinline class="hidden"></video>
+    <img id="fallbackImage" crossorigin="anonymous" src="https://images.unsplash.com/photo-1616608118693-b131498a19ff?fm=jpg&q=60&w=3000&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D" class="hidden">
+
+    <!-- WebGL Shadery a Logika -->
+    <script>
+        // --- WebGL Shaders ---
+        const vsSource = `
+            attribute vec2 aPosition;
+            varying vec2 vTexCoord;
+            void main() {
+                vTexCoord = aPosition * 0.5 + 0.5;
+                vTexCoord.y = 1.0 - vTexCoord.y;
+                gl_Position = vec4(aPosition, 0.0, 1.0);
+            }
+        `;
+
+        const fsSource = `
+            precision highp float;
+
+            varying vec2 vTexCoord;
+            
+            uniform sampler2D uTexture;
+            uniform int uMode;            // 0 = Sféra, 1 = Voda, 2 = Krystal
+            uniform float uIOR;           // Index lomu
+            uniform float uAberration;    // Síla barevného rozkladu
+            uniform float uRadius;        // Poloměr efektu
+            uniform vec2 uMouse;          // Pozice středu lomu (0.0 až 1.0)
+            uniform float uTime;          // Časová proměnná pro animaci vln
+
+            vec2 refractSphere(vec2 uv, vec2 center, float radius, float ior) {
+                vec2 delta = uv - center;
+                float dist = length(delta);
+                
+                if (dist < radius) {
+                    float z = sqrt(radius * radius - dist * dist);
+                    vec3 normal = normalize(vec3(delta, z));
+                    vec3 incident = vec3(0.0, 0.0, -1.0);
+                    vec3 refracted = refract(incident, normal, 1.0 / ior);
+
+                    return uv + refracted.xy * (dist / radius) * 0.5;
+                }
+                return uv;
+            }
+
+            vec2 refractWater(vec2 uv, vec2 center, float time, float ior) {
+                vec2 delta = uv - center;
+                float dist = length(delta);
+                float wave = sin(dist * 40.0 - time * 4.0) * 0.03;
+                wave += cos(uv.x * 20.0 + time) * 0.01;
+                wave += sin(uv.y * 25.0 - time * 1.5) * 0.01;
+                
+                vec2 dir = dist > 0.0001 ? delta / dist : vec2(0.0);
+                vec2 offset = dir * wave * (ior - 1.0);
+                return uv + offset;
+            }
+
+            vec2 refractCrystal(vec2 uv, float steps, float ior) {
+                vec2 grid = floor(uv * steps) / steps;
+
+                vec2 fuv = fract(uv * steps);
+                
+                float angle = (grid.x + grid.y) * 6.28;
+                vec2 offset = vec2(cos(angle), sin(angle)) * 0.015 * (ior - 1.0);
+                return grid + fuv / steps + offset;
+            }
+
+            void main() {
+                float iorR = uIOR;
+                float iorG = uIOR + uAberration * 0.5;
+                float iorB = uIOR + uAberration;
+
+                vec2 uvR, uvG, uvB;
+
+                if (uMode == 0) {
+                    uvR = refractSphere(vTexCoord, uMouse, uRadius, iorR);
+                    uvG = refractSphere(vTexCoord, uMouse, uRadius, iorG);
+                    uvB = refractSphere(vTexCoord, uMouse, uRadius, iorB);
+                } else if (uMode == 1) {
+
+                    uvR = refractWater(vTexCoord, uMouse, uTime, iorR);
+                    uvG = refractWater(vTexCoord, uMouse, uTime, iorG);
+                    uvB = refractWater(vTexCoord, uMouse, uTime, iorB);
+                } else {
+                    uvR = refractCrystal(vTexCoord, 15.0, iorR);
+                    uvG = refractCrystal(vTexCoord, 15.0, iorG);
+                    uvB = refractCrystal(vTexCoord, 15.0, iorB);
+                }
+
+                uvR = clamp(uvR, 0.001, 0.999);
+                uvG = clamp(uvG, 0.001, 0.999);
+                uvB = clamp(uvB, 0.001, 0.999);
+
+                float r = texture2D(uTexture, uvR).r;
+                float g = texture2D(uTexture, uvG).g;
+                float b = texture2D(uTexture, uvB).b;
+                float a = texture2D(uTexture, uvG).a;
+
+                gl_FragColor = vec4(r, g, b, a);
+
+            }
+        `;
+
+        // --- Stav aplikace ---
+        const state = {
+            ior: 1.33,
+            aberration: 0.02,
+            radius: 0.40,
+            mode: 0,
+            mouse: [0.5, 0.5],
+            startTime: Date.now(),
+            activeSource: 'image'
+        };
+
+        // --- DOM Elementy ---
+        const canvas = document.getElementById('glCanvas');
+        const video = document.getElementById('videoElement');
+        const fallbackImg = document.getElementById('fallbackImage');
+        const fileInput = document.getElementById('fileInput');
+
+        const statusMessage = document.getElementById('statusMessage');
+        const errorDisplay = document.getElementById('errorDisplay');
+        const iorWarningBox = document.getElementById('iorWarning');
+
+        // Ovládací prvky
+        const sliderIOR = document.getElementById('sliderIOR');
+        const valIOR = document.getElementById('valIOR');
+        const sliderAberration = document.getElementById('sliderAberration');
+        const valAberration = document.getElementById('valAberration');
+        const sliderRadius = document.getElementById('sliderRadius');
+        const valRadius = document.getElementById('valRadius');
+        const selectMode = document.getElementById('selectMode');
+
+        // Tlačítka
+        const btnCamera = document.getElementById('btnCamera');
+        const btnUpload = document.getElementById('btnUpload');
+        const btnResetDefault = document.getElementById('btnResetDefault');
+
+        // --- WebGL Inicializace ---
+
+        const gl = canvas.getContext('webgl');
+        if (!gl) {
+            showError("Váš prohlížeč nebo hardware nepodporuje WebGL.");
+        }
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            showError("Nepodařilo se inicializovat WebGL program.");
+        }
+
+        gl.useProgram(program);
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1.0, -1.0,
+             1.0, -1.0,
+            -1.0,  1.0,
+            -1.0,  1.0,
+             1.0, -1.0,
+
+             1.0,  1.0,
+        ]), gl.STATIC_DRAW);
+
+        const aPosition = gl.getAttribLocation(program, 'aPosition');
+        gl.enableVertexAttribArray(aPosition);
+        gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+
+        const uTextureLoc = gl.getUniformLocation(program, 'uTexture');
+        const uModeLoc = gl.getUniformLocation(program, 'uMode');
+        const uIORLoc = gl.getUniformLocation(program, 'uIOR');
+        const uAberrationLoc = gl.getUniformLocation(program, 'uAberration');
+        const uRadiusLoc = gl.getUniformLocation(program, 'uRadius');
+        const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+        const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+
+        const glTexture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, glTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+        // --- Fyzikální popisky IOR ---
+        function updateIORDescription(value) {
+            let desc = "";
+            let bgClass = "";
+            let textClass = "";
+            let borderClass = "";
+
+            if (value === 1.0) {
+                desc = "🎯 <strong>IOR = 1.00 (Čisté vakuum/Vzduch):</strong> Světlo prochází přímo bez jakéhokoliv ohybu. Obraz je zcela bez deformace.";
+                bgClass = "bg-gray-950/80"; textClass = "text-gray-400"; borderClass = "border-gray-800";
+            } else if (value > 1.0 && value <= 1.33) {
+                desc = "🌊 <strong>1.01 až 1.33 (Voda/Led):</strong> Světlo se mírně zpomaluje a ohýbá. Vzniká efekt jemné lupy nebo pohledu pod hladinu.";
+                bgClass = "bg-blue-950/40"; textClass = "text-blue-300"; borderClass = "border-blue-900/40";
+            } else if (value > 1.33 && value <= 1.6) {
+                desc = "🔮 <strong>1.34 až 1.60 (Běžné až těžké sklo):</strong> Standardní optické prostředí. Dochází k silnému zvětšení uprostřed ohniska, detaily na okrajích se stlačují.";
+
+                bgClass = "bg-purple-950/40"; textClass = "text-purple-300"; borderClass = "purple-900/40";
+            } else if (value > 1.6 && value <= 2.42) {
+                desc = "💎 <strong>1.61 až 2.42 (Flintové sklo / Diamant):</strong> Extrémní lom materiálu. Obraz se silně deformuje a při okraji čočky dochází k masivnímu ohybu světla.";
+                bgClass = "bg-indigo-950/40"; textClass = "text-indigo-300"; borderClass = "border-indigo-900/40";
+            } else if (value > 2.42) {
+                desc = "⚠️ <strong>Nad 2.42 (Super-kritický lom):</strong> Fyzikální extrém. Čočka začíná obraz uvnitř ohniska kompletně převracet vzhůru nohama a deformovat do spirály z důvodu totálního vnitřního odrazu.";
+                bgClass = "bg-amber-950/50"; textClass = "text-amber-400"; borderClass = "border-amber-900/50";
+            } else if (value >= 0.0 && value < 1.0) {
+                desc = "🔍 <strong>0.00 až 0.99 (Sub-optické prostředí):</strong> Fázová rychlost simulovaných paprsků by byla vyšší než rychlost světla ve vakuu. Způsobuje opačnou deformaci – obraz se do středu smrští.";
+                bgClass = "bg-orange-950/50"; textClass = "text-orange-400"; borderClass = "border-orange-900/50";
+            } else if (value < 0.0) {
+                desc = "🌌 <strong>Záporný index lomu (Metamateriály):</strong> Světlo se neláme na opačnou stranu od kolmice, ale vrací se zpět. Způsobuje kompletní prostorovou inverzi a zrcadlení paprsků.";
+                bgClass = "bg-red-950/50"; textClass = "text-red-400"; borderClass = "border-red-900/50";
+            }
+
+            iorWarningBox.className = `mt-2 text-[11px] leading-relaxed p-2.5 rounded-xl border ${bgClass} ${textClass} ${borderClass} transition-all duration-300`;
+            iorWarningBox.innerHTML = desc;
+        }
+
+
+        function resizeCanvasToMatchSource(width, height) {
+            const maxDisplayWidth = 800;
+            let targetWidth = width;
+            let targetHeight = height;
+
+            if (width > maxDisplayWidth) {
+                const ratio = maxDisplayWidth / width;
+                targetWidth = maxDisplayWidth;
+                targetHeight = height * ratio;
+            }
+
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            canvas.classList.remove('opacity-0');
+        }
+
+        // --- Renderovací smyčka ---
+        function render() {
+
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.bindTexture(gl.TEXTURE_2D, glTexture);
+            
+            if (state.activeSource === 'video' && video.readyState >= video.HAVE_CURRENT_DATA) {
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+            }
+
+            gl.uniform1i(uTextureLoc, 0);
+            gl.uniform1i(uModeLoc, state.mode);
+            gl.uniform1f(uIORLoc, state.ior);
+            gl.uniform1f(uAberrationLoc, state.aberration);
+            gl.uniform1f(uRadiusLoc, state.radius);
+            gl.uniform2f(uMouseLoc, state.mouse[0], state.mouse[1]);
+            gl.uniform1f(uTimeLoc, (Date.now() - state.startTime) / 1000.0);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+
+
+        function setStaticImageSource(imgElement) {
+            state.activeSource = 'image';
+            gl.bindTexture(gl.TEXTURE_2D, glTexture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imgElement);
+            resizeCanvasToMatchSource(imgElement.naturalWidth || 800, imgElement.naturalHeight || 600);
+        }
+
+        if (fallbackImg.complete) {
+            setStaticImageSource(fallbackImg);
+            statusMessage.innerText = "Režim: Fyzikální realita (Lensball)";
+        } else {
+            fallbackImg.onload = () => {
+                setStaticImageSource(fallbackImg);
+                statusMessage.innerText = "Režim: Fyzikální realita (Lensball)";
+            };
+        }
+
+        // --- Správa interakcí ---
+        function handleInteraction(e) {
+
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            const x = (clientX - rect.left) / rect.width;
+            const y = (clientY - rect.top) / rect.height;
+            
+            state.mouse = [Math.max(0.0, Math.min(1.0, x)), Math.max(0.0, Math.min(1.0, y))];
+        }
+
+        canvas.addEventListener('mousemove', handleInteraction);
+        canvas.addEventListener('mousedown', handleInteraction);
+        canvas.addEventListener('touchmove', handleInteraction, { passive: true });
+        canvas.addEventListener('touchstart', handleInteraction, { passive: true });
+
+        sliderIOR.addEventListener('input', (e) => {
+            state.ior = parseFloat(e.target.value);
+            valIOR.innerText = state.ior.toFixed(2);
+            updateIORDescription(state.ior);
+
+        });
+
+        sliderAberration.addEventListener('input', (e) => {
+            state.aberration = parseFloat(e.target.value);
+            valAberration.innerText = state.aberration.toFixed(3);
+        });
+
+        sliderRadius.addEventListener('input', (e) => {
+            state.radius = parseFloat(e.target.value);
+            valRadius.innerText = state.radius.toFixed(2);
+        });
+
+        selectMode.addEventListener('change', (e) => {
+            state.mode = parseInt(e.target.value);
+        });
+
+        btnCamera.addEventListener('click', async () => {
+            hideError();
+            statusMessage.innerText = "Žákost o přístup ke kameře...";
+
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                startVideoPreset(stream);
+            } catch (err1) {
+                console.warn("Fáze 1 selhala, zkouším nouzové vynucení (Fáze 2):", err1);
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    startVideoPreset(stream);
+                } catch (err2) {
+                    console.error("Kamera nedostupná:", err2);
+                    statusMessage.innerText = "Kamera zablokována";
+                    showError(
+                        `Nelze vynutit kameru. Důvod: ${err2.name}. ` +
+                        `Pokud testujete kód uvnitř sandboxu (Iframe), prohlížeč blokuje hardwarová oprávnění. ` +
+                        `Uložte kód jako .html soubor lokálně na disk a spusťte jej napřímo.`
+
+                    );
+                }
+            }
+        });
+
+        function startVideoPreset(stream) {
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                video.play();
+                state.activeSource = 'video';
+                resizeCanvasToMatchSource(video.videoWidth, video.videoHeight);
+                statusMessage.innerText = "Režim: Živá kamera";
+                hideError();
+            };
+        }
+
+        btnUpload.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', (e) => {
+
+            const file = e.target.files[0];
+            if (!file) return;
+
+            hideError();
+            const fileURL = URL.createObjectURL(file);
+
+            if (file.type.startsWith('image/')) {
+                const userImg = new Image();
+                userImg.src = fileURL;
+                userImg.onload = () => {
+                    setStaticImageSource(userImg);
+                    statusMessage.innerText = "Režim: Vlastní obrázek";
+                };
+            } else if (file.type.startsWith('video/')) {
+                video.srcObject = null;
+                video.src = fileURL;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    state.activeSource = 'video';
+
+                    resizeCanvasToMatchSource(video.videoWidth, video.videoHeight);
+                    statusMessage.innerText = "Režim: Vlastní video";
+                };
+            }
+        });
+
+        btnResetDefault.addEventListener('click', () => {
+            hideError();
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            video.src = "";
+            setStaticImageSource(fallbackImg);
+            statusMessage.innerText = "Režim: Fyzikální realita (Lensball)";
+        });
+
+        function showError(text) {
+            errorDisplay.innerText = text;
+
+            errorDisplay.classList.remove('hidden');
+        }
+        function hideError() {
+            errorDisplay.classList.add('hidden');
+        }
+
+        updateIORDescription(state.ior);
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>
+
+

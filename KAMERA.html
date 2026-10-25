@@ -1,0 +1,570 @@
+# Simulátor Optického Lomu Kamery
+
+<!DOCTYPE html>
+<html lang="cs" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulátor Optického Lomu Kamery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+        body {
+            font-family: 'JetBrains+Mono', monospace;
+            background-color: #0b0f19;
+        }
+        /* Úprava vzhledu posuvníků */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #1e293b;
+            height: 6px;
+
+            border-radius: 9999px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen flex flex-col md:flex-row overflow-x-hidden">
+
+
+    <!-- Hlavní zobrazovací plocha (Viewport) -->
+    <div class="flex-1 relative flex items-center justify-center p-4 bg-slate-950 order-1 md:order-2 h-[60vh] md:h-screen">
+        <canvas id="glCanvas" class="w-full h-full max-w-full max-h-full rounded-2xl shadow-2xl border border-slate-800 bg-black object-contain"></canvas>
+        
+        <!-- Indikátor stavu kamery -->
+        <div id="cameraStatus" class="absolute top-8 left-8 bg-slate-900/90 backdrop-blur border border-slate-700 px-4 py-2 rounded-xl flex items-center space-x-3 text-sm">
+            <span class="relative flex h-3 w-3">
+                <span id="statusPulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span id="statusDot" class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+            </span>
+            <span id="statusText">Inicializace procedurálního světa...</span>
+        </div>
+
+        <!-- Popisek pro interaktivní ovládání -->
+        <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-slate-900/60 backdrop-blur-sm text-xs px-4 py-2 rounded-full border border-slate-800 pointer-events-none text-center">
+            Kliknutím nebo tažením po displeji měníte ohnisko lomu
+        </div>
+    </div>
+
+
+    <!-- Ovládací panel (Dashboard) -->
+    <div class="w-full md:w-[420px] bg-slate-900/50 backdrop-blur-xl border-t md:border-t-0 md:border-r border-slate-800 p-6 flex flex-col justify-between order-2 md:order-1 overflow-y-auto max-h-[40vh] md:max-h-screen">
+        <div>
+            <!-- Hlavička -->
+            <div class="mb-6">
+                <div class="flex items-center space-x-2 text-sky-400 font-bold tracking-wider text-xs uppercase mb-1">
+                    <span>Kvantová Optická Laboratoř</span>
+                </div>
+                <h1 class="text-xl font-bold tracking-tight text-white">Refrakční Transformátor</h1>
+                <p class="text-xs text-slate-400 mt-1">Sledujte realitu skrze modifikované indexy lomu světla.</p>
+            </div>
+
+            <!-- ALTERNATIVNÍ REŽIM: EXTERNÍ MÉDIA (Řešení pro zablokovaný sandbox iframe) -->
+            <div class="mb-6 p-4 bg-slate-950/60 rounded-xl border border-dashed border-slate-700 text-center">
+                <p class="text-[11px] text-amber-400 mb-3 flex items-start text-left">
+                    <span class="mr-1.5 mt-0.5">⚠️</span>
+                    <span>Prohlížeče z bezpečnostních důvodů striktně zakazují spuštění kamery uvnitř testovacích rámců (iframe). Nahrajte fotku/video svého světa níže:</span>
+                </p>
+                <button id="btnUploadTrigger" class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium py-2 px-3 rounded-xl text-xs transition-all border border-slate-700 flex items-center justify-center space-x-2">
+
+                    <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    <span>Nahrát fotku nebo video světa</span>
+                </button>
+                <input id="fileUpload" type="file" accept="image/*,video/*" class="hidden">
+            </div>
+
+            <!-- Výběr optického režimu -->
+            <div class="mb-6">
+                <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Optické Prostředí (Typ lomu)</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button id="modeSphere" class="py-3 px-2 rounded-xl border border-sky-500 bg-sky-500/10 text-sky-400 text-xs font-medium flex flex-col items-center justify-center transition-all">
+                        <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Sféra / Čočka
+                    </button>
+                    <button id="modeRipple" class="py-3 px-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-medium flex flex-col items-center justify-center transition-all hover:border-slate-700">
+                        <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.213 6H16"></path></svg>
+                        Vodní Hladina
+                    </button>
+                    <button id="modePrism" class="py-3 px-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-medium flex flex-col items-center justify-center transition-all hover:border-slate-700">
+
+                        <svg class="w-5 h-5 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                        Krystal / Hranol
+                    </button>
+                </div>
+            </div>
+
+            <!-- Fyzikální parametry -->
+            <div class="space-y-5 bg-slate-950/40 p-4 rounded-xl border border-slate-800/80">
+                <div>
+                    <div class="flex justify-between text-xs mb-2">
+                        <span class="text-slate-400 font-medium">Index Lomu (n)</span>
+                        <span id="valRefraction" class="text-sky-400 font-bold">1.52</span>
+                    </div>
+                    <input id="slideRefraction" type="range" min="0.1" max="3.0" step="0.05" value="1.52" class="w-full">
+                    <p class="text-[10px] text-slate-500 mt-1">Nízké hodnoty simulují vzduch, vysoké diamant.</p>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs mb-2">
+
+                        <span class="text-slate-400 font-medium">Chromatická Aberace (Disperze)</span>
+                        <span id="valAberration" class="text-pink-400 font-bold">0.03</span>
+                    </div>
+                    <input id="slideAberration" type="range" min="0.0" max="0.1" step="0.002" value="0.03" class="w-full">
+                    <p class="text-[10px] text-slate-500 mt-1">Rozklad světla na barevné složky (R-G-B vady čočky).</p>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs mb-2">
+                        <span class="text-slate-400 font-medium">Měřítko / Velikost čočky</span>
+                        <span id="valScale" class="text-emerald-400 font-bold">0.35</span>
+                    </div>
+                    <input id="slideScale" type="range" min="0.1" max="0.8" step="0.01" value="0.35" class="w-full">
+                </div>
+            </div>
+        </div>
+
+        <!-- Akční tlačítka a systémová oznámení -->
+        <div class="mt-6 pt-4 border-t border-slate-800/60">
+
+            <button id="btnCamera" class="w-full bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-medium py-2.5 px-4 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center space-x-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                <span>Vynutit hardwarovou webkameru</span>
+            </button>
+            <div id="errorAlert" class="hidden mt-3 p-3 bg-red-950/50 border border-red-900/50 text-red-400 rounded-xl text-center text-xs">
+                Kamera nebyla nalezena nebo nebyl udělen přístup. Spuštěno v generovaném režimu.
+            </div>
+        </div>
+    </div>
+
+    <!-- Skrytý HTML5 Video element pro stream z webkamery / souboru -->
+    <video id="webcam" autoplay playsinline muted style="display:none;"></video>
+
+    <!-- WEBGL KÓD (SHADERY A LOGIKA) -->
+    <script>
+        const canvas = document.getElementById('glCanvas');
+        const gl = canvas.getContext('webgl');
+        const video = document.getElementById('webcam');
+
+
+        if (!gl) {
+            alert('WebGL není vaším prohlížečem podporován.');
+        }
+
+        // --- GLSL SHADERY ---
+        const vsSource = `
+            attribute vec2 aPosition;
+            varying vec2 vTexCoord;
+            void main() {
+                vTexCoord = aPosition * 0.5 + 0.5;
+                gl_Position = vec4(aPosition, 0.0, 1.0);
+            }
+        `;
+
+        const fsSource = `
+            precision mediump float;
+            varying vec2 vTexCoord;
+            uniform sampler2D uTexture;
+            
+
+            uniform int uMode;               
+            uniform float uRefractionIndex;  
+            uniform float uAberration;       
+            uniform float uScale;            
+            uniform vec2 uMouse;             
+            uniform float uTime;             
+            uniform float uAspect;           
+            uniform int uHasVideo;           
+
+            vec4 generateWorldPattern(vec2 uv) {
+                vec2 grid = fract(uv * 12.0);
+                float line = step(0.96, grid.x) + step(0.96, grid.y);
+                
+                float pattern = sin(uv.x * 10.0 + uTime) * cos(uv.y * 10.0 - uTime);
+                vec3 baseColor = mix(vec3(0.08, 0.11, 0.2), vec3(0.15, 0.3, 0.5), pattern * 0.5 + 0.5);
+                
+                vec2 center1 = vec2(0.3 + sin(uTime*0.5)*0.2, 0.5 + cos(uTime*0.7)*0.2);
+                float dist1 = length(uv - center1);
+                vec3 glow1 = vec3(1.0, 0.3, 0.6) * (0.015 / (dist1 + 0.04));
+
+
+                vec2 center2 = vec2(0.7 + cos(uTime*0.4)*0.2, 0.4 + sin(uTime*0.6)*0.2);
+                float dist2 = length(uv - center2);
+                vec3 glow2 = vec3(0.0, 0.8, 1.0) * (0.015 / (dist2 + 0.04));
+                
+                return vec4(baseColor + vec3(line * 0.12) + glow1 + glow2, 1.0);
+            }
+
+            vec4 fetchSource(vec2 uv) {
+                if (uHasVideo == 1) {
+                    return texture2D(uTexture, vec2(uv.x, 1.0 - uv.y));
+                } else {
+                    return generateWorldPattern(uv);
+                }
+            }
+
+            void main() {
+                vec2 uv = vTexCoord;
+                
+                vec2 uvR = uv;
+
+                vec2 uvG = uv;
+                vec2 uvB = uv;
+                
+                if (uMode == 0) { 
+                    vec2 normMouse = uMouse;
+                    vec2 toLens = uv - normMouse;
+                    toLens.x *= uAspect;
+                    float dist = length(toLens);
+                    
+                    if (dist < uScale) {
+                        float normalizedDist = dist / uScale;
+                        float angle = atan(toLens.y, toLens.x);
+                        
+                        float refractDistG = pow(normalizedDist, uRefractionIndex) * uScale;
+                        vec2 offsetG = vec2(cos(angle), sin(angle)) * refractDistG;
+                        offsetG.x /= uAspect;
+                        uvG = normMouse + offsetG;
+                        
+                        float refractDistR = pow(normalizedDist, uRefractionIndex + uAberration) * uScale;
+
+                        vec2 offsetR = vec2(cos(angle), sin(angle)) * refractDistR;
+                        offsetR.x /= uAspect;
+                        uvR = normMouse + offsetR;
+                        
+                        float refractDistB = pow(normalizedDist, max(0.05, uRefractionIndex - uAberration)) * uScale;
+                        vec2 offsetB = vec2(cos(angle), sin(angle)) * refractDistB;
+                        offsetB.x /= uAspect;
+                        uvB = normMouse + offsetB;
+                    }
+                } 
+                else if (uMode == 1) { 
+                    vec2 toCenter = uv - uMouse;
+                    float dist = length(toCenter);
+                    
+                    float wave = sin(dist * 40.0 - uTime * 5.0) * 0.05 * uScale * uRefractionIndex;
+                    vec2 waveDir = normalize(toCenter + vec2(0.001));
+                    
+                    uvG = uv + waveDir * wave;
+                    uvR = uv + waveDir * wave * (1.0 + uAberration * 5.0);
+
+                    uvB = uv + waveDir * wave * (1.0 - uAberration * 5.0);
+                } 
+                else if (uMode == 2) { 
+                    vec2 scaledUv = uv * (15.0 - uScale * 10.0);
+                    vec2 localUv = fract(scaledUv);
+                    
+                    float tilt = (localUv.x + localUv.y > 1.0) ? 0.015 : -0.015;
+                    vec2 prismOffset = vec2(tilt) * uRefractionIndex;
+                    
+                    uvG = uv + prismOffset;
+                    uvR = prismOffset * (1.0 + uAberration * 4.0) + uv;
+                    uvB = prismOffset * (1.0 - uAberration * 4.0) + uv;
+                }
+                
+                uvR = clamp(uvR, 0.002, 0.998);
+                uvG = clamp(uvG, 0.002, 0.998);
+                uvB = clamp(uvB, 0.002, 0.998);
+                
+                float colorR = fetchSource(uvR).r;
+
+                float colorG = fetchSource(uvG).g;
+                float colorB = fetchSource(uvB).b;
+                
+                gl_FragColor = vec4(colorR, colorG, colorB, 1.0);
+            }
+        `;
+
+        // --- INICIALIZACE WEBGL ---
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error(gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+
+        const vertexShader = createShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Nelze inicializovat shader program.');
+        }
+
+        gl.useProgram(program);
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1,   1, -1,  -1,  1,
+            -1,  1,   1, -1,   1,  1,
+
+        ]), gl.STATIC_DRAW);
+
+        const positionLocation = gl.getAttribLocation(program, 'aPosition');
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+        const uModeLoc = gl.getUniformLocation(program, 'uMode');
+        const uRefractionIndexLoc = gl.getUniformLocation(program, 'uRefractionIndex');
+        const uAberrationLoc = gl.getUniformLocation(program, 'uAberration');
+        const uScaleLoc = gl.getUniformLocation(program, 'uScale');
+        const uMouseLoc = gl.getUniformLocation(program, 'uMouse');
+
+        const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+        const uAspectLoc = gl.getUniformLocation(program, 'uAspect');
+        const uHasVideoLoc = gl.getUniformLocation(program, 'uHasVideo');
+
+        // --- MANAŽMENT STAVU ---
+        let currentMode = 0;
+        let mouseX = 0.5, mouseY = 0.5;
+        let isVideoReady = false;
+        let isUsingImage = false;
+        let uploadedImage = null;
+        let startTime = Date.now();
+
+        const slideRefraction = document.getElementById('slideRefraction');
+        const slideAberration = document.getElementById('slideAberration');
+        const slideScale = document.getElementById('slideScale');
+        
+        const valRefraction = document.getElementById('valRefraction');
+        const valAberration = document.getElementById('valAberration');
+        const valScale = document.getElementById('valScale');
+
+
+        const btnCamera = document.getElementById('btnCamera');
+        const errorAlert = document.getElementById('errorAlert');
+        const cameraStatus = document.getElementById('cameraStatus');
+        const statusText = document.getElementById('statusText');
+        const statusDot = document.getElementById('statusDot');
+        const statusPulse = document.getElementById('statusPulse');
+        
+        const btnUploadTrigger = document.getElementById('btnUploadTrigger');
+        const fileUpload = document.getElementById('fileUpload');
+
+        // --- ASYNC INICIALIZACE WEBKAMERY ---
+        async function initCamera() {
+            statusText.innerText = "Násilné vyžádání objektivu...";
+            errorAlert.classList.add('hidden');
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" } 
+                });
+
+                handleStream(stream);
+            } catch (err) {
+                console.warn("První konfigurace odmítnuta, zkouším obecný video stream...", err);
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    handleStream(stream);
+                } catch (secondErr) {
+                    console.error("Hardware kompletně nedostupný:", secondErr);
+                    showCameraError(secondErr);
+                }
+            }
+        }
+
+        function handleStream(stream) {
+            isUsingImage = false;
+            uploadedImage = null;
+            video.srcObject = stream;
+            video.play().then(() => {
+                video.onloadeddata = () => {
+
+                    isVideoReady = true;
+                    statusText.innerText = "Svět zachycen. Optický lom aktivní.";
+                    statusDot.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-500";
+                    statusPulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+                    errorAlert.classList.add('hidden');
+                };
+            }).catch(playErr => {
+                showCameraError(playErr);
+            });
+        }
+
+        function showCameraError(err) {
+            let detailMsg = "Zkontrolujte zapojení hardware.";
+            if (err.name === "NotAllowedError") {
+                detailMsg = "Bezpečnostní omezení prohlížeče (sandbox iframe) blokuje přístup k webkameře. Nahrajte libovolný soubor přes tlačítko v panelu výše, nebo uložte kód jako soubor .html lokálně na plochu.";
+            }
+            errorAlert.innerHTML = `<strong>Hardware zablokován:</strong><br><span class="text-[11px]">${detailMsg}</span>`;
+            errorAlert.classList.remove('hidden');
+        }
+
+
+        btnCamera.addEventListener('click', initCamera);
+
+        // --- LOGIKA NAHRÁNÍ VLASTNÍHO SOUBORU (OBCHVAT BLOKACE) ---
+        btnUploadTrigger.addEventListener('click', () => fileUpload.click());
+
+        fileUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Zastavení předchozího streamu kamery
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+
+            if (file.type.startsWith('video/')) {
+                isUsingImage = false;
+                uploadedImage = null;
+                
+
+                video.src = URL.createObjectURL(file);
+                video.muted = true;
+                video.loop = true;
+                video.play().then(() => {
+                    isVideoReady = true;
+                    statusText.innerText = "Nahráno video světa. Optický lom aktivní.";
+                    statusDot.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-500";
+                    statusPulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+                    errorAlert.classList.add('hidden');
+                });
+            } else if (file.type.startsWith('image/')) {
+                video.pause();
+                video.src = "";
+                isVideoReady = false;
+                
+                const img = new Image();
+                img.onload = function() {
+                    uploadedImage = img;
+                    isUsingImage = true;
+
+                    statusText.innerText = "Nahrána fotka světa. Optický lom aktivní.";
+                    statusDot.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-500";
+                    statusPulse.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+                    errorAlert.classList.add('hidden');
+                };
+                img.src = URL.createObjectURL(file);
+            }
+        });
+
+        // --- MOUSE & TOUCH EVENTY ---
+        function updateMouseFromEvent(e) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+
+            }
+            mouseX = (clientX - rect.left) / rect.width;
+            mouseY = 1.0 - ((clientY - rect.top) / rect.height);
+            mouseX = Math.max(0.0, Math.min(1.0, mouseX));
+            mouseY = Math.max(0.0, Math.min(1.0, mouseY));
+        }
+
+        canvas.addEventListener('mousemove', updateMouseFromEvent);
+        canvas.addEventListener('mousedown', updateMouseFromEvent);
+        canvas.addEventListener('touchmove', updateMouseFromEvent, { passive: true });
+        canvas.addEventListener('touchstart', updateMouseFromEvent, { passive: true });
+
+        const modes = [
+            { btn: document.getElementById('modeSphere'), id: 0 },
+            { btn: document.getElementById('modeRipple'), id: 1 },
+            { btn: document.getElementById('modePrism'), id: 2 }
+        ];
+
+        modes.forEach(m => {
+
+            m.btn.addEventListener('click', () => {
+                currentMode = m.id;
+                modes.forEach(o => {
+                    o.btn.className = "py-3 px-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs font-medium flex flex-col items-center justify-center transition-all hover:border-slate-700";
+                });
+                m.btn.className = "py-3 px-2 rounded-xl border border-sky-500 bg-sky-500/10 text-sky-400 text-xs font-medium flex flex-col items-center justify-center transition-all";
+            });
+        });
+
+        // --- RENDER SLUČKA ---
+        function render() {
+            const width = canvas.clientWidth;
+            const height = canvas.clientHeight;
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
+                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            }
+
+
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            if (isVideoReady && video.readyState >= video.HAVE_CURRENT_DATA) {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+                gl.uniform1i(uHasVideoLoc, 1);
+            } else if (isUsingImage && uploadedImage) {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, uploadedImage);
+                gl.uniform1i(uHasVideoLoc, 1);
+            } else {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.uniform1i(uHasVideoLoc, 0);
+            }
+
+            const time = (Date.now() - startTime) / 1000.0;
+            gl.uniform1i(uModeLoc, currentMode);
+            gl.uniform1f(uRefractionIndexLoc, parseFloat(slideRefraction.value));
+            gl.uniform1f(uAberrationLoc, parseFloat(slideAberration.value));
+
+            gl.uniform1f(uScaleLoc, parseFloat(slideScale.value));
+            gl.uniform2f(uMouseLoc, mouseX, mouseY);
+            gl.uniform1f(uTimeLoc, time);
+            gl.uniform1f(uAspectLoc, canvas.width / canvas.height);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+            valRefraction.innerText = parseFloat(slideRefraction.value).toFixed(2);
+            valAberration.innerText = parseFloat(slideAberration.value).toFixed(3);
+            valScale.innerText = parseFloat(slideScale.value).toFixed(2);
+
+            requestAnimationFrame(render);
+        }
+
+        window.onload = function() {
+            initCamera();
+            requestAnimationFrame(render);
+        };
+    </script>
+</body>
+</html>
+
+

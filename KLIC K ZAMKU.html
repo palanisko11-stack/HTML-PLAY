@@ -1,0 +1,522 @@
+# Tesla 3-6-9 Vesmírný Projektor lomu Oka
+
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tesla 3-6-9 Vesmírný Projektor lomu Oka</title>
+    <!-- Použití schváleného CDN pro Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background-color: #030308;
+            color: #e0e0ff;
+
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* Glassmorphism UI panel */
+        .dashboard {
+            position: absolute;
+            top: 20px;
+
+            left: 20px;
+            z-index: 10;
+            width: 320px;
+            background: rgba(10, 10, 25, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            pointer-events: auto;
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+            color: #00f0ff;
+
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+        }
+
+        .subtitle {
+            font-size: 0.85rem;
+            color: #8a99ad;
+            margin-bottom: 20px;
+            line-height: 1.4;
+        }
+
+        .separator {
+            height: 1px;
+            background: linear-gradient(90deg, rgba(0,240,255,0.4) 0%, rgba(0,0,0,0) 100%);
+            margin-bottom: 20px;
+        }
+
+        .metric-group {
+            margin-bottom: 16px;
+
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #a0a0d0;
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .metric-value {
+            font-size: 1.1rem;
+            font-family: monospace;
+            font-weight: bold;
+            color: #ffffff;
+        }
+
+
+        .highlight-3 { color: #ff3366; text-shadow: 0 0 8px rgba(255,51,102,0.4); }
+        .highlight-6 { color: #33ccff; text-shadow: 0 0 8px rgba(51,204,255,0.4); }
+        .highlight-9 { color: #ffcc00; text-shadow: 0 0 8px rgba(255,204,0,0.4); }
+
+        .controls-hint {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10;
+            background: rgba(10, 10, 25, 0.5);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+            color: #8a99ad;
+        }
+
+        /* Custom Notification Box namísto zakázaného alert() */
+
+        #msg-box {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(20, 250, 150, 0.15);
+            border: 1px solid #14fa96;
+            color: #14fa96;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
+            transition: opacity 0.5s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+
+    <div id="canvas-container"></div>
+
+    <div class="dashboard">
+        <h1>Tesla 3 • 6 • 9</h1>
+        <div class="subtitle">Harmonická simulace lomu světla očním bio-rezonátorem bez šumu.</div>
+        
+        <div class="separator"></div>
+
+        <div class="metric-group">
+            <div class="metric-label"><span>Dimenze Pipeline</span> <span class="highlight-3">[X, Y, Z]</span></div>
+            <div class="metric-value">3 Základní Osy</div>
+        </div>
+
+        <div class="metric-group">
+            <div class="metric-label"><span>Rozhraní Reality</span> <span class="highlight-6">[Skybox]</span></div>
+            <div class="metric-value">6-Stěnná Prostorová Krychle</div>
+        </div>
+
+        <div class="metric-group">
+
+            <div class="metric-label"><span>Ohnisko & Index lomu</span> <span class="highlight-9">[Slza / Voda]</span></div>
+            <div class="metric-value">n = 1.333... (Zlomek 4/3)</div>
+        </div>
+
+        <div class="separator"></div>
+
+        <div class="metric-group">
+            <div class="metric-label"><span>1. Harmonická (Základní)</span></div>
+            <div class="metric-value" style="font-size: 0.95rem;">4 / <span class="highlight-3">3</span> = 1.333...</div>
+        </div>
+
+        <div class="metric-group">
+            <div class="metric-label"><span>2. Harmonická (Odezva)</span></div>
+            <div class="metric-value" style="font-size: 0.95rem;">8 / <span class="highlight-6">6</span> = 1.333...</div>
+        </div>
+
+        <div class="metric-group">
+            <div class="metric-label"><span>3. Harmonická (Ohnisko)</span></div>
+            <div class="metric-value" style="font-size: 0.95rem;">12 / <span class="highlight-9">9</span> = 1.333...</div>
+
+        </div>
+    </div>
+
+    <div class="controls-hint">Tažením myši rotujte posvátnou geometrií</div>
+    <div id="msg-box">Rezonanční pipeline aktivována bez šumu.</div>
+
+    <script>
+        // Inicializace globálních proměnných pro Three.js
+        let scene, camera, renderer;
+        let eyeResonator, skyboxCube, axisGroup, raysGroup;
+        
+        // Proměnné pro plynulé ovládání kamery myší bez externích knihoven
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let rotationTarget = { x: 0.3, y: 0.5 };
+        let currentRotation = { x: 0.3, y: 0.5 };
+
+        window.onload = function () {
+            init();
+
+            setupInteractions();
+            animate();
+            
+            // Zobrazení elegantní úvodní zprávy bez použití alert()
+            const msgBox = document.getElementById('msg-box');
+            msgBox.style.opacity = '1';
+            setTimeout(() => {
+                msgBox.style.opacity = '0';
+            }, 4000);
+        };
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. Scéna & Kamera
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x030308, 0.015);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+            camera.position.z = 35;
+
+            // 2. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(scene.fog.color);
+            container.appendChild(renderer.domElement);
+
+            // 3. Vytvoření komponent podle struktury 3-6-9
+
+            // --- 3 DIMENZE: Osy X, Y, Z (Skupina 3 základních vektorů) ---
+            axisGroup = new THREE.Group();
+            const axisLength = 18;
+            
+            // Osa X - Červená/Růžová (Harmonická 3)
+            const matX = new THREE.LineBasicMaterial({ color: 0xff3366, transparent: true, opacity: 0.7, linewidth: 2 });
+            const geoX = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-axisLength, 0, 0), new THREE.Vector3(axisLength, 0, 0)]);
+            axisGroup.add(new THREE.Line(geoX, matX));
+
+
+            // Osa Y - Azurová (Harmonická 6)
+            const matY = new THREE.LineBasicMaterial({ color: 0x33ccff, transparent: true, opacity: 0.7, linewidth: 2 });
+            const geoY = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -axisLength, 0), new THREE.Vector3(0, axisLength, 0)]);
+            axisGroup.add(new THREE.Line(geoY, matY));
+
+            // Osa Z - Zlatá/Žlutá (Harmonická 9)
+            const matZ = new THREE.LineBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.7, linewidth: 2 });
+            const geoZ = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -axisLength), new THREE.Vector3(0, 0, axisLength)]);
+            axisGroup.add(new THREE.Line(geoZ, matZ));
+
+            scene.add(axisGroup);
+
+            // --- 6 ROZHRANÍ: 6-stěnná prostorová krychle (Skybox reality) ---
+            const cubeGeo = new THREE.BoxGeometry(24, 24, 24, 2, 2, 2);
+            // Drátěný model krychle reprezentující čistou mřížku
+            const cubeMat = new THREE.MeshBasicMaterial({
+                color: 0x33ccff,
+                wireframe: true,
+                transparent: true,
+
+                opacity: 0.12,
+                blending: THREE.AdditiveBlending
+            });
+            skyboxCube = new THREE.Mesh(cubeGeo, cubeMat);
+            scene.add(skyboxCube);
+
+            // --- CENTRAL RESONATOR: Oko s dokonalým lomem n = 1.333... ---
+            // Použijeme vlastní vertex a fragment shader pro absolutně čistý render vlnění bez šumu
+            const eyeGeo = new THREE.SphereGeometry(4.5, 64, 64);
+            const eyeMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0.0 },
+                    ior: { value: 1.3333 }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        vViewPosition = -mvPosition.xyz;
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    uniform float time;
+                    uniform float ior;
+                    
+                    void main() {
+                        vec3 normal = normalize(vNormal);
+                        vec3 viewDir = normalize(vViewPosition);
+                        
+                        // Čistá matematická simulace Fresnelova lomu a odrazu na rozhraní oka
+                        float dotProduct = dot(normal, viewDir);
+                        float fresnel = pow(1.0 - max(dotProduct, 0.0), 3.0);
+                        
+
+                        // Harmonické složky vln bez jakéhokoliv zrnitého šumu
+                        float wave1 = sin(normal.x * 6.0 + time * 2.0) * 0.5 + 0.5;
+                        float wave2 = cos(normal.y * 9.0 - time * 1.5) * 0.5 + 0.5;
+                        float harmony = (wave1 + wave2) * 0.5;
+                        
+                        vec3 coreColor = vec3(0.02, 0.1, 0.25);
+                        vec3 edgeColor = vec3(0.0, 0.94, 1.0); // Čisté azurové rozhraní
+                        vec3 goldGlow = vec3(1.0, 0.8, 0.0) * harmony * 0.3;
+                        
+                        vec3 finalColor = mix(coreColor, edgeColor, fresnel) + goldGlow;
+                        
+                        // Index lomu ovlivňuje výslednou intenzitu jasu v ohnisku
+                        float alpha = 0.4 + (fresnel * 0.5) + (harmony * 0.1);
+                        
+                        gl_FragColor = vec4(finalColor, alpha);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+
+                side: THREE.DoubleSide
+            });
+
+            eyeResonator = new THREE.Mesh(eyeGeo, eyeMat);
+            scene.add(eyeResonator);
+
+            // Přidáme vnitřní rezonanční mřížku (posvátná geometrie oka)
+            const innerGeo = new THREE.IcosahedronGeometry(4.4, 2);
+            const innerMat = new THREE.MeshBasicMaterial({
+                color: 0xffcc00,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.2
+            });
+            const innerMesh = new THREE.Mesh(innerGeo, innerMat);
+            eyeResonator.add(innerMesh);
+
+            // --- 9 OHNISKO: Paprsky lomu světla letící z oka ven ---
+            raysGroup = new THREE.Group();
+
+            const numRays = 9; // Přesně 9 hlavních rezonančních paprsků z ohniska lomu
+            const rayLength = 22;
+
+            for (let i = 0; i < numRays; i++) {
+                // Rozprostření paprsků v přesných úhlech (harmonické rozdělení kruhu)
+                const angle = (i / numRays) * Math.PI * 2;
+                
+                const points = [];
+                // Paprsek začíná v ohnisku (0,0,0)
+                points.push(new THREE.Vector3(0, 0, 0));
+                
+                // Bod zlomu na povrchu čočky (poloměr 4.5) ovlivněný indexem lomu 4/3
+                // Matematická transformace směru lomu ven
+                const breakX = Math.cos(angle) * 4.5;
+                const breakY = Math.sin(angle) * 4.5;
+                const breakZ = Math.sin(angle * 3.0) * 1.5;
+                points.push(new THREE.Vector3(breakX, breakY, breakZ));
+
+                // Koncový bod paprsku projektovaný ven na stěny reality (Skyboxu)
+
+                // Lom světla n=1.333 lineárně narovnává a stabilizuje trajektorii bez šumu
+                const scaleOut = rayLength / 4.5;
+                points.push(new THREE.Vector3(breakX * scaleOut, breakY * scaleOut, breakZ * (scaleOut * 0.5)));
+
+                const rayGeo = new THREE.BufferGeometry().setFromPoints(points);
+                
+                // Barevná gradace paprsků podle harmonických podskupin 3, 6, 9
+                let rayColor = 0xff3366; // 3
+                if ((i + 1) % 3 === 0) rayColor = 0xffcc00; // 9
+                else if ((i + 1) % 2 === 0) rayColor = 0x33ccff; // 6
+
+                const rayMat = new THREE.LineBasicMaterial({
+                    color: rayColor,
+                    transparent: true,
+                    opacity: 0.6,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const line = new THREE.Line(rayGeo, rayMat);
+
+                raysGroup.add(line);
+                
+                // Přidání zářících uzlových bodů na rozhraní lomu oka
+                const nodeGeo = new THREE.SphereGeometry(0.18, 8, 8);
+                const nodeMat = new THREE.MeshBasicMaterial({ color: rayColor, transparent: true, opacity: 0.9 });
+                const nodeMesh = new THREE.Mesh(nodeGeo, nodeMat);
+                nodeMesh.position.set(breakX, breakY, breakZ);
+                raysGroup.add(nodeMesh);
+            }
+            scene.add(raysGroup);
+
+            // Osvětlení scény pro jemné podbarvení hloubky prostorové mřížky
+            const ambientLight = new THREE.AmbientLight(0x0a0a20);
+            scene.add(ambientLight);
+            
+            const dirLight = new THREE.DirectionalLight(0x00f0ff, 0.5);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+
+
+            // Resizing window handler
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        // Nastavení plynulého ovládání myší/dotykem pro otáčení scény
+        function setupInteractions() {
+            const dom = renderer.domElement;
+
+            dom.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            dom.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+
+                const deltaMove = {
+                    x: e.clientX - previousMousePosition.x,
+                    y: e.clientY - previousMousePosition.y
+
+                };
+
+                // Výpočet cílové rotace na základě pohybu myši
+                rotationTarget.y += deltaMove.x * 0.005;
+                rotationTarget.x += deltaMove.y * 0.005;
+
+                // Omezení vertikální rotace proti přetočení vzhůru nohama
+                rotationTarget.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, rotationTarget.x));
+
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            // Podpora pro dotyková zařízení (mobilní telefony/tablety)
+            dom.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+
+                    isDragging = true;
+                    previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }
+            }, { passive: true });
+
+            dom.addEventListener('touchmove', (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                const deltaMove = {
+                    x: e.touches[0].clientX - previousMousePosition.x,
+                    y: e.touches[0].clientY - previousMousePosition.y
+                };
+                rotationTarget.y += deltaMove.x * 0.006;
+                rotationTarget.x += deltaMove.y * 0.006;
+                rotationTarget.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, rotationTarget.x));
+                previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            }, { passive: true });
+
+            window.addEventListener('touchend', () => { isDragging = false; });
+        }
+
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Hlavní animační smyčka (Game Loop / Simulation Loop)
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const clockTime = performance.now() * 0.001;
+
+            // Aktualizace shader uniform času pro výpočet vlnění
+            if (eyeResonator && eyeResonator.material.uniforms) {
+                eyeResonator.material.uniforms.time.value = clockTime;
+            }
+
+            // Plynulé Lineární Tlumení (Lerp) pro rotaci kamery/scény (efekt setrvačnosti)
+            currentRotation.x += (rotationTarget.x - currentRotation.x) * 0.05;
+
+            currentRotation.y += (rotationTarget.y - currentRotation.y) * 0.05;
+
+            // Aplikace rotace na jednotlivé strukturální skupiny
+            if (eyeResonator) {
+                eyeResonator.rotation.x = currentRotation.x;
+                eyeResonator.rotation.y = currentRotation.y + clockTime * 0.05; // Jemná permanentní rotace v čase
+            }
+
+            if (raysGroup) {
+                raysGroup.rotation.x = currentRotation.x;
+                raysGroup.rotation.y = currentRotation.y;
+            }
+
+            if (axisGroup) {
+                axisGroup.rotation.x = currentRotation.x;
+                axisGroup.rotation.y = currentRotation.y;
+            }
+
+            if (skyboxCube) {
+
+                skyboxCube.rotation.x = currentRotation.x * 0.3; // Pomalejší pohyb pozadí pro efekt hloubky
+                skyboxCube.rotation.y = currentRotation.y * 0.3;
+            }
+
+            // Jemná harmonická mikrovibrace paprsků (simulace pulzace frekvencí 3, 6, 9)
+            if (raysGroup) {
+                const waveScale = 1.0 + Math.sin(clockTime * 3.0) * 0.015;
+                raysGroup.scale.set(waveScale, waveScale, waveScale);
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
+
+

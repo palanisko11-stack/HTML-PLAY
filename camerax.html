@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="cs" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kvantový procesor reality z vaší kamery</title>
+    <!-- Tailwind CSS z whitelistu povolených externích domén -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #04060d;
+            color: #e2e8f0;
+        }
+        .custom-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 9999px;
+            background: #1e293b;
+            outline: none;
+        }
+        .custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #a855f7;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+        }
+        .custom-slider::-webkit-slider-thumb:hover {
+            background: #c084fc;
+            transform: scale(1.1);
+        }
+        .hud-grid {
+            background-size: 30px 30px;
+            background-image: linear-gradient(to right, rgba(168, 85, 247, 0.04) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(168, 85, 247, 0.04) 1px, transparent 1px);
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col font-sans overflow-x-hidden select-none">
+
+    <!-- Hlavní rozhraní laboratorního monitoru kamery -->
+    <div class="flex-1 flex flex-col lg:flex-row p-4 gap-6 max-w-7xl mx-auto w-full">
+        
+        <!-- Levý panel: Interaktivní WebGL hledí kamery -->
+        <div class="flex-1 flex flex-col bg-slate-900/40 border border-purple-950/60 rounded-2xl p-5 shadow-2xl relative backdrop-blur-md">
+            
+            <!-- Hlavička stavu procesoru -->
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4 border-b border-slate-800/60 pb-3 z-10">
+                <div>
+                    <h2 class="text-base font-bold text-purple-200 tracking-wide flex items-center gap-2">
+                        <span id="statusDot" class="inline-block w-2.5 h-2.5 rounded-full bg-purple-500 shadow-lg shadow-purple-500/50 animate-pulse"></span>
+                        Optický procesor: Kvantový přepis reality
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Sledujte transformaci vlnoplochy světa skrz F-centra elektronové mřížky.</p>
+                </div>
+                <div id="cameraIndicator" class="text-xs font-mono px-3 py-1 rounded-full border border-slate-800 bg-slate-950 text-slate-400 self-start sm:self-center">
+                    ZDROJ: Inicializace...
+                </div>
+            </div>
+
+            <!-- Interaktivní plátno s kamerovým feedem a WebGL efekty -->
+            <div class="flex-1 relative flex items-center justify-center bg-black/90 rounded-xl border border-purple-950/30 overflow-hidden min-h-[380px]">
+                <!-- WebGL Render plátno -->
+                <canvas id="glCanvas" class="w-full h-full object-cover transition-opacity duration-300 opacity-0"></canvas>
+                
+                <!-- Skryté HTML5 elementy pro zachytávání zdrojových dat -->
+                <video id="videoInput" autoplay playsinline muted loop class="hidden"></video>
+                
+                <!-- HUD překryvné prvky laboratorního displeje -->
+                <div class="absolute inset-0 pointer-events-none hud-grid z-10"></div>
+                
+                <div class="absolute top-4 left-4 text-[10px] font-mono text-purple-400 bg-slate-950/80 px-2 py-0.5 border border-purple-900/30 rounded backdrop-blur-sm tracking-widest z-10">
+                    REAL-TIME MATRICE
+                </div>
+                
+                <div id="freezeOverlay" class="absolute inset-0 bg-purple-950/10 border border-purple-500/20 flex items-center justify-center font-mono text-xs tracking-widest text-purple-300 font-bold hidden backdrop-blur-[1px] z-10">
+                    <div class="bg-slate-950/90 border border-purple-900/50 px-4 py-2 rounded-xl flex flex-col items-center gap-1 shadow-2xl">
+                        <span>🔒 SVĚTLO ZASTAVENO V PROSTORU</span>
+                        <span class="text-[9px] text-slate-400 font-normal">Fázová vlnoplocha fixována ve spinech F-center</span>
+                    </div>
+                </div>
+
+                <div id="teleportOverlay" class="absolute inset-0 bg-fuchsia-950/20 flex flex-col items-center justify-center font-mono text-fuchsia-400 font-bold hidden z-10">
+                    <span class="text-2xl tracking-wildest animate-pulse">✨ PROBÍHÁ TELEPORTACE STAVU ✨</span>
+                    <span class="text-[10px] text-fuchsia-300/80 font-normal mt-1 bg-slate-950/80 px-3 py-1 border border-fuchsia-900 rounded">
+                        Nelokální transformace reality přes provázané uzly (0g)
+                    </span>
+                </div>
+
+                <!-- Varovný overlay při vypnutém limitátoru a kritickém přetížení -->
+                <div id="collapseOverlay" class="absolute inset-0 bg-red-950/40 flex flex-col items-center justify-center font-mono text-red-500 font-bold hidden z-10 border border-red-500/40 backdrop-blur-[2px]">
+                    <span class="text-xl tracking-widest animate-bounce">⚠️ DETEKVÁN KRITICKÝ KOLAPS MŘÍŽKY ⚠️</span>
+                    <span class="text-[10px] text-red-300 font-normal mt-1 bg-slate-950/90 px-3 py-1.5 border border-red-900 rounded shadow-2xl text-center max-w-sm">
+                        Absence limitátoru způsobuje totální fázovou dekoherenci. Matematické singularity hrozí pádem renderovacího subsystému!
+                    </span>
+                </div>
+            </div>
+
+            <!-- Dolní ovládací konzole pro manipulaci s časem a prostorem -->
+            <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5 z-10">
+                <button id="btnFreeze" class="py-2.5 px-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-purple-950/20 active:scale-[0.97]">
+                    🛑 Zastavit světlo (v čase)
+                </button>
+                <button id="btnRelease" disabled class="py-2.5 px-3 bg-slate-800 text-slate-500 border border-slate-700/50 rounded-xl text-xs font-bold transition active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed">
+                    ▶️ Rozběhnout čas světla
+                </button>
+                <button id="btnTeleport" class="py-2.5 px-3 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-fuchsia-950/20 active:scale-[0.97]">
+                    ✨ Teleportovat realitu
+                </button>
+                <button id="btnTriggerCamera" class="py-2.5 px-3 bg-slate-950 hover:bg-slate-900 text-slate-300 border border-slate-800 rounded-xl text-xs font-medium transition active:scale-[0.97]">
+                    📸 Aktivovat reálnou kameru
+                </button>
+            </div>
+        </div>
+
+        <!-- Pravý panel: Fyzikální konfigurátor a kvantový deník -->
+        <div class="w-full lg:w-96 flex flex-col gap-5 shrink-0 select-none">
+            
+            <!-- Hlavní nastavení kvantového krystalu -->
+            <div class="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-md flex flex-col gap-4 flex-1 justify-between overflow-y-auto max-h-[85vh] lg:max-h-none">
+                <div class="space-y-4">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800/60 pb-2">Kvantové Modulátory</h3>
+
+                    <!-- Slider: Skryté souvislosti -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderConnections" class="text-xs font-semibold text-emerald-400 uppercase tracking-wide">Skryté souvislosti (Provázání polí)</label>
+                            <span id="valConnections" class="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderConnections" min="0" max="100" step="5" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Zviditelňuje podpovrchová silová vlákna a kvantové interference propojující body časoprostorové sítě.
+                        </p>
+                    </div>
+
+                    <!-- Slider: Fázový posun / Antihmota -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderPhaseShift" class="text-xs font-semibold text-rose-400 uppercase tracking-wide">Fázový posun (Destrukce antihmotou)</label>
+                            <span id="valPhaseShift" class="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 border border-rose-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderPhaseShift" min="0" max="100" step="5" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Simuluje anomálii antihmoty a destruktivní interference, které lokálně trhají silová vlákna mřížky.
+                        </p>
+                    </div>
+
+                    <!-- NOVINKA - Slider: Optomechanické provázání (Levitující sklo - Říjen 2026) -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderOptomech" class="text-xs font-semibold text-amber-400 uppercase tracking-wide">Optomechanické provázání (Nanosféra)</label>
+                            <span id="valOptomech" class="text-xs font-mono font-bold text-amber-400 bg-amber-950/60 border border-amber-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderOptomech" min="0" max="100" step="5" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Simuluje přelomový objev z října 2026: provázání letícího světla s mechanickým makroskopickým chvěním levitující skleněné kuličky.
+                        </p>
+                    </div>
+
+                    <!-- NOVINKA - Slider: Fotonický časový krystal (Mihotání času - Léto 2026) -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderTimeCrystal" class="text-xs font-semibold text-fuchsia-400 uppercase tracking-wide">Časový krystal (Fotonická oscilace)</label>
+                            <span id="valTimeCrystal" class="text-xs font-mono font-bold text-fuchsia-400 bg-fuchsia-950/60 border border-fuchsia-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderTimeCrystal" min="0" max="100" step="5" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Aktivuje celooptický časový krystal (Nature, červenec 2026). Periodicky modifikuje vlastnosti mřížky v čase na úrovni pikosekund.
+                        </p>
+                    </div>
+
+                    <!-- NOVINKA - Slider: Tepelné tetelení (Plamen ohně / Index lomu) -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderHeatHaze" class="text-xs font-semibold text-orange-400 uppercase tracking-wide">Tepelné tetelení (Fyzika ohně)</label>
+                            <span id="valHeatHaze" class="text-xs font-mono font-bold text-orange-400 bg-orange-950/60 border border-orange-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderHeatHaze" min="0" max="100" step="5" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Simuluje průchod světla plamenem ohně. Rychle stoupající kapsy horkého plynu chaoticky ohýbají paprsky kvůli kolísání lokální hustoty.
+                        </p>
+                    </div>
+
+                    <!-- Slider: Kryogenní zmrazení mřížky -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderCryoFreeze" class="text-xs font-semibold text-cyan-400 uppercase tracking-wide">Kryogenní zmrazení (Absolutní nula)</label>
+                            <span id="valCryoFreeze" class="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 border border-cyan-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderCryoFreeze" min="0" max="100" step="5" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Ochlazuje matrici k absolutní nule (-273,15 °C). Tlumí tepelné fonony a uzamyká tekutý tanec uzlů do rigidní geometrie.
+                        </p>
+                    </div>
+
+                    <!-- Slider: Hustota F-center / Index lomu -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderFIntensity" class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Hustota F-center (Index lomu)</label>
+                            <span id="valFIntensity" class="text-xs font-mono font-bold text-purple-400 bg-purple-950/60 border border-purple-900/40 px-2 py-0.5 rounded">0 %</span>
+                        </div>
+                        <input type="range" id="sliderFIntensity" min="0" max="100" step="2" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Vyvolává elektronové vakance v krystalu, čímž opticky stlačuje a ohýbá vlnoplochu světa.
+                        </p>
+                    </div>
+
+                    <!-- Slider: Chromatický barevný rozklad -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1.5">
+                            <label for="sliderAberration" class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Spektrální disperze (Aberrace)</label>
+                            <span id="valAberration" class="text-xs font-mono font-bold text-pink-400 bg-pink-950/60 border border-pink-900/40 px-2 py-0.5 rounded">0.0</span>
+                        </div>
+                        <input type="range" id="sliderAberration" min="0" max="50" step="1" value="0" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer custom-slider">
+                        <p class="text-[10px] text-slate-500 mt-1 leading-tight">
+                            Rozkládá vlnové délky reality na spektrální RGB kanály bez biologické filtrace mozkem.
+                        </p>
+                    </div>
+
+                    <!-- Stínění Mu-Metal -->
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs font-bold text-slate-300">Mu-Metalové magnetické stínění</div>
+                            <div class="text-[9px] text-slate-500 leading-tight mt-0.5">Eliminuje lokální magnetický šum, který způsobuje dekoherenci mřížky.</div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="checkShield" checked class="sr-only peer">
+                            <div class="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-600 peer-checked:after:bg-white"></div>
+                        </label>
+                    </div>
+
+                    <!-- Kvantový automatický bezpečnostní limitátor -->
+                    <div class="bg-slate-950/60 p-3 rounded-xl border border-emerald-950/40 flex items-center justify-between">
+                        <div>
+                            <div class="text-xs font-bold text-emerald-400">Bezpečnostní limitátor mřížky</div>
+                            <div class="text-[9px] text-slate-500 leading-tight mt-0.5">Automaticky tlumí fázové anomálie nad 80 %, aby nedošlo ke kolapsu vnímání.</div>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="checkLimiter" checked class="sr-only peer">
+                            <div class="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-slate-400 after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600 peer-checked:after:bg-white"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Výstupní fyzikální deník pro interakci reality -->
+                <div class="border border-purple-950/40 bg-slate-950/90 p-3.5 rounded-xl flex flex-col h-40 mt-4">
+                    <div class="text-[9px] font-mono text-purple-400 font-bold uppercase tracking-wider mb-1.5 border-b border-purple-950/60 pb-1">
+                        Kvantový protokol vnímání
+                    </div>
+                    <div id="journalOutput" class="text-xs leading-relaxed text-slate-300 overflow-y-auto flex-1 space-y-1 console-log">
+                        <div>&gt; Inicializace komplexní optické soustavy... Propojeno. Systém je plně upgradován o vědecké objevy roku 2026. Vyzkoušejte aktivovat <strong>Časový krystal</strong> nebo <strong>Fyziku ohně</strong>!</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- WebGL Shadery pro real-time zpracování obrazu kamery -->
+    <script>
+        // --- WebGL vertex shader ---
+        const vsSource = `
+            attribute vec2 aPosition;
+            varying vec2 vUv;
+            void main() {
+                vUv = aPosition * 0.5 + 0.5;
+                vUv.y = 1.0 - vUv.y; 
+                gl_Position = vec4(aPosition, 0.0, 1.0);
+            }
+        `;
+
+        // --- WebGL fragment shader ---
+        const fsSource = `
+            precision highp float;
+            varying vec2 vUv;
+
+            uniform sampler2D uTexture;
+            uniform float uTime;
+            uniform float uFIntensity;     
+            uniform float uAberration;     
+            uniform float uShielding;      
+            uniform float uTeleport;       
+            uniform float uConnections;    
+            uniform float uPhaseShift;     
+            uniform float uCryoFreeze;     
+            uniform float uOptomech;       // Uniform pro říjnový objev 2026 levitujícího skla
+            uniform float uTimeCrystal;    // Uniform pro červencový objev 2026 časového krystalu
+            uniform float uHeatHaze;       // Uniform pro fyziku ohně a tepelného tetelení
+
+            float rand(vec2 co) {
+                return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+            }
+
+            float drawLine(vec2 p, vec2 a, vec2 b, float thickness) {
+                vec2 pa = p - a, ba = b - a;
+                float h = clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0);
+                return smoothstep(thickness, 0.0, length(pa - ba*h));
+            }
+
+            void main() {
+                vec2 uv = vUv;
+
+                // A. Simulace tepelného tetelení (Fyzika ohně - chaotické horké vzduchové kapsy)
+                if (uHeatHaze > 0.01) {
+                    float dynamicNoise = sin(uv.y * 35.0 + uTime * 22.0) * cos(uv.x * 20.0 + uTime * 14.0);
+                    uv.x += dynamicNoise * 0.007 * uHeatHaze;
+                    uv.y += sin(uv.x * 40.0 + uTime * 18.0) * 0.004 * uHeatHaze;
+                }
+
+                // B. Fotonický časový krystal (Periodická pikosekundová transformace mřížky v čase)
+                float tcMod = 1.0;
+                if (uTimeCrystal > 0.01) {
+                    // Extrémně vysokofrekvenční oscilace indexu lomu v čase
+                    float tcOsc = sin(uTime * 140.0);
+                    uv.x += tcOsc * 0.005 * uTimeCrystal;
+                    tcMod = mix(1.0, 1.2 + 0.3 * sin(uTime * 90.0), uTimeCrystal);
+                }
+
+                // C. Optomechanické provázání (Levitující nanosféra skla deformující spektrum)
+                if (uOptomech > 0.01) {
+                    vec2 spherePos = vec2(0.5 + 0.15 * sin(uTime * 2.5), 0.5 + 0.12 * cos(uTime * 1.8));
+                    vec2 toSphere = uv - spherePos;
+                    float dist = length(toSphere);
+                    if (dist < 0.09) {
+                        // Kvantový mikro-objektiv levitující kuličky stlačuje světelné pole
+                        uv += normalize(toSphere) * (0.09 - dist) * 0.45 * uOptomech;
+                    }
+                }
+
+                // 1. Optické stlačování vlnoplochy F-centry (Index lomu)
+                if (uFIntensity > 0.01) {
+                    vec2 center = vec2(0.5, 0.5);
+                    vec2 distVec = uv - center;
+                    float dist = length(distVec);
+                    uv += normalize(distVec) * pow(dist, 2.0) * uFIntensity * 0.28;
+                }
+
+                // 2. Dekoherence při výpadku Mu-metalového stínění
+                if (uShielding < 0.5) {
+                    float noise = rand(uv + vec2(uTime * 0.1, 0.0)) * 0.025;
+                    uv.x += sin(uv.y * 150.0 + uTime * 20.0) * 0.008 + noise;
+                }
+
+                // 3. Glitch posuny při teleportaci stavu
+                if (uTeleport > 0.01) {
+                    float strip = step(0.92, sin(uv.y * 80.0 + uTime * 40.0));
+                    uv.x += strip * uTeleport * 0.07 * sin(uTime * 50.0);
+                    uv.y += step(0.95, rand(vec2(uTime, uv.x))) * uTeleport * 0.03;
+                }
+
+                // Extra zesílení destrukce obrazu při přetížení bez limitátoru
+                if (uPhaseShift > 0.81) {
+                    uv.x += sin(uTime * 80.0) * (uPhaseShift - 0.8) * 0.15;
+                    uv.y += cos(uTime * 80.0) * (uPhaseShift - 0.8) * 0.15;
+                }
+
+                // 4. Výpočet spektrální disperze (RGB kanály s vlivem časového krystalu)
+                float shift = uAberration * 0.0015 * tcMod + (uTeleport * 0.012);
+                float r = texture2D(uTexture, uv - vec2(shift, 0.0)).r;
+                float g = texture2D(uTexture, uv).g;
+                float b = texture2D(uTexture, uv + vec2(shift, 0.0)).b;
+
+                vec3 finalColor = vec3(r, g, b);
+
+                // Zesílení barevné luminiscence časového krystalu
+                if (uTimeCrystal > 0.01) {
+                    finalColor.rb *= mix(1.0, 1.3, uTimeCrystal * abs(sin(uTime * 50.0)));
+                }
+
+                // 5. Barevná filtrace F-center (Jantarová absorpce)
+                if (uFIntensity > 0.01) {
+                    vec3 amberTint = vec3(1.0, 0.65, 0.25);
+                    finalColor = mix(finalColor, finalColor * amberTint * 1.5, uFIntensity * 0.6);
+                }
+
+                // 6. Vizualizace „skrytých souvislostí“ s integrovaným kryogenním zmrazením
+                if (uConnections > 0.01) {
+                    vec3 netColor = vec3(0.0, 0.9, 0.5); 
+                    float webLines = 0.0;
+                    
+                    // Výpočet koeficientu tlumení pohybu (1.0 = plný pohyb, 0.0 = absolutní nula/rigidní)
+                    float motionScale = 1.0 - uCryoFreeze;
+                    
+                    for (int i = 0; i < 3; i++) {
+                        for (int j = 0; j < 3; j++) {
+                            vec2 nodeA = vec2(float(i) * 0.25 + 0.25, float(j) * 0.25 + 0.25);
+                            nodeA.x += sin(uTime + float(i) * 2.0) * 0.04 * motionScale;
+                            nodeA.y += cos(uTime + float(j) * 2.0) * 0.04 * motionScale;
+                            
+                            vec2 nodeB = nodeA + vec2(0.25, sin(uTime + float(i)) * 0.03 * motionScale);
+                            webLines += drawLine(uv, nodeA, nodeB, 0.003) * 0.6;
+                            
+                            vec2 nodeC = nodeA + vec2(cos(uTime + float(j)) * 0.03 * motionScale, 0.25);
+                            webLines += drawLine(uv, nodeA, nodeC, 0.003) * 0.6;
+                        }
+                    }
+                    
+                    // Aplikace destruktivního fázového posunu (Trhání zelené mřížky)
+                    if (uPhaseShift > 0.01) {
+                        float tearMask = step(0.35 + 0.25 * sin(uTime * 2.5), rand(uv * 8.0 + sin(uTime * 0.5)));
+                        float waveTear = step(0.45, sin(uv.x * 50.0 - uv.y * 40.0 + uTime * 6.0));
+                        float finalTear = mix(1.0, tearMask * waveTear, uPhaseShift);
+                        
+                        webLines *= finalTear;
+                        
+                        if (finalTear < 0.2) {
+                            netColor = mix(netColor, vec3(1.0, 0.25, 0.15), uPhaseShift);
+                            webLines += drawLine(uv, uv - 0.005, uv + 0.005, 0.001) * uPhaseShift * 0.3; 
+                        }
+                    }
+                    
+                    finalColor = mix(finalColor, finalColor + netColor, webLines * uConnections * 0.7);
+                }
+
+                if (uTeleport > 0.01) {
+                    finalColor += vec3(0.6, 0.1, 0.8) * uTeleport * 0.25;
+                }
+
+                if (uShielding < 0.5) {
+                    finalColor.r += rand(uv * uTime) * 0.08;
+                }
+
+                if (uPhaseShift > 0.95) {
+                    finalColor += vec3(rand(uv * uTime)) * (uPhaseShift - 0.95) * 10.0;
+                }
+
+                gl_FragColor = vec4(finalColor, 1.0);
+            }
+        `;
+
+        // --- Globální stav laboratorní kamery ---
+        const state = {
+            fIntensity: 0.0,
+            aberration: 0.0,
+            shielding: 1.0,
+            teleport: 0.0,
+            connections: 0.0, 
+            phaseShift: 0.0,   
+            cryoFreeze: 0.0,    
+            optomech: 0.0,      // Nový parametr stavu
+            timeCrystal: 0.0,   // Nový parametr stavu
+            heatHaze: 0.0,      // Nový parametr stavu
+            limiterActive: true, 
+            lastLogTime: 0,
+            isFrozen: false,
+            cameraActive: false,
+            time: 0
+        };
+
+        // --- Inicializace prvků ---
+        const canvas = document.getElementById('glCanvas');
+        const video = document.getElementById('videoInput');
+        const cameraIndicator = document.getElementById('cameraIndicator');
+        const journalOutput = document.getElementById('journalOutput');
+        
+        const sliderConnections = document.getElementById('sliderConnections');
+        const valConnections = document.getElementById('valConnections');
+        const sliderPhaseShift = document.getElementById('sliderPhaseShift');
+        const valPhaseShift = document.getElementById('valPhaseShift');
+        const sliderCryoFreeze = document.getElementById('sliderCryoFreeze'); 
+        const valCryoFreeze = document.getElementById('valCryoFreeze');
+        
+        // Inicializace nových sliderů elementů
+        const sliderOptomech = document.getElementById('sliderOptomech');
+        const valOptomech = document.getElementById('valOptomech');
+        const sliderTimeCrystal = document.getElementById('sliderTimeCrystal');
+        const valTimeCrystal = document.getElementById('valTimeCrystal');
+        const sliderHeatHaze = document.getElementById('sliderHeatHaze');
+        const valHeatHaze = document.getElementById('valHeatHaze');
+
+        const sliderFIntensity = document.getElementById('sliderFIntensity');
+        const valFIntensity = document.getElementById('valFIntensity');
+        const sliderAberration = document.getElementById('sliderAberration');
+        const valAberration = document.getElementById('valAberration');
+        const checkShield = document.getElementById('checkShield');
+        const checkLimiter = document.getElementById('checkLimiter'); 
+
+        const btnFreeze = document.getElementById('btnFreeze');
+        const btnRelease = document.getElementById('btnRelease');
+        const btnTeleport = document.getElementById('btnTeleport');
+        const btnTriggerCamera = document.getElementById('btnTriggerCamera');
+
+        const freezeOverlay = document.getElementById('freezeOverlay');
+        const teleportOverlay = document.getElementById('teleportOverlay');
+        const collapseOverlay = document.getElementById('collapseOverlay'); 
+
+        // --- WebGL Inicializace ---
+        const gl = canvas.getContext('webgl', { reserveDrawingBuffer: true });
+        if (!gl) {
+            console.error("WebGL nedostupné.");
+        }
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        const program = gl.createProgram();
+        gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vsSource));
+        gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+        gl.linkProgram(program);
+        gl.useProgram(program);
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+        
+        const aPosition = gl.getAttribLocation(program, 'aPosition');
+        gl.enableVertexAttribArray(aPosition);
+        gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+
+        // Uniforms lokace
+        const uTimeLoc = gl.getUniformLocation(program, 'uTime');
+        const uFIntensityLoc = gl.getUniformLocation(program, 'uFIntensity');
+        const uAberrationLoc = gl.getUniformLocation(program, 'uAberration');
+        const uShieldingLoc = gl.getUniformLocation(program, 'uShielding');
+        const uTeleportLoc = gl.getUniformLocation(program, 'uTeleport');
+        const uConnectionsLoc = gl.getUniformLocation(program, 'uConnections');
+        const uPhaseShiftLoc = gl.getUniformLocation(program, 'uPhaseShift'); 
+        const uCryoFreezeLoc = gl.getUniformLocation(program, 'uCryoFreeze'); 
+        const uOptomechLoc = gl.getUniformLocation(program, 'uOptomech'); 
+        const uTimeCrystalLoc = gl.getUniformLocation(program, 'uTimeCrystal'); 
+        const uHeatHazeLoc = gl.getUniformLocation(program, 'uHeatHaze'); 
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([10, 15, 28, 255]));
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+        const fallbackImage = new Image();
+        fallbackImage.crossOrigin = "anonymous";
+        fallbackImage.src = "https://images.unsplash.com/photo-1782925508947-d5c96e957eae?fm=jpg&q=60&w=3000&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
+        fallbackImage.onload = () => {
+            if (!state.cameraActive && !state.isFrozen) {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, fallbackImage);
+                cameraIndicator.innerText = "ZDROJ: Kvantové testovací médium";
+            }
+        };
+
+        function writeLog(message, type = 'info') {
+            const div = document.createElement('div');
+            let prefix = '&gt; ';
+            if (type === 'error') div.className = 'text-red-400 font-bold';
+            if (type === 'success') div.className = 'text-purple-400 font-bold';
+            if (type === 'teleport') div.className = 'text-fuchsia-400 font-bold';
+            if (type === 'connect') div.className = 'text-emerald-400 font-bold';
+            if (type === 'cryo') div.className = 'text-cyan-400 font-bold';
+            if (type === 'optomech') div.className = 'text-amber-400 font-bold';
+            if (type === 'haze') div.className = 'text-orange-400 font-bold';
+            div.innerHTML = prefix + message;
+            journalOutput.appendChild(div);
+            journalOutput.scrollTop = journalOutput.scrollHeight;
+        }
+
+        function resize() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            canvas.classList.remove('opacity-0');
+        }
+        window.addEventListener('resize', resize);
+        setTimeout(resize, 100);
+
+        async function initCamera() {
+            writeLog("Vyžaduji hardware kamery...");
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                video.play();
+                state.cameraActive = true;
+                cameraIndicator.innerText = "ZDROJ: Živá kamera (1g)";
+                cameraIndicator.className = "text-xs font-mono px-3 py-1 rounded-full border border-purple-900/40 bg-purple-950/40 text-purple-300 font-bold";
+                writeLog("Přístup udělen. Vaše biologická realita streamována do komplexního shaderu.", "success");
+            } catch (err) {
+                cameraIndicator.innerText = "ZDROJ: Sandbox Fallback";
+                writeLog("Kamera nedostupná. Spuštěno testovací médium z fotobanky Unsplash.", "error");
+            }
+        }
+
+        // --- Renderovací smyčka zpracování pixelů ---
+        function render() {
+            state.time += 0.016;
+
+            if (state.teleport > 0.0) {
+                state.teleport = Math.max(0.0, state.teleport - 2.5 * 0.016);
+                if (state.teleport <= 0.01) teleportOverlay.classList.add('hidden');
+            }
+
+            let currentPhaseShift = state.phaseShift;
+            
+            if (state.limiterActive) {
+                collapseOverlay.classList.add('hidden');
+                if (currentPhaseShift > 0.80) {
+                    currentPhaseShift = 0.80; 
+                    if (state.time - state.lastLogTime > 4.0) {
+                        writeLog("🛡️ Kvantový limitátor ořízl fázovou anomálii na bezpečných 80 %.", "success");
+                        state.lastLogTime = state.time;
+                    }
+                }
+            } else {
+                if (state.phaseShift > 0.90) {
+                    collapseOverlay.classList.remove('hidden');
+                    if (state.time - state.lastLogTime > 3.0) {
+                        writeLog("⚠️ KRITICKÉ PŘETÍŽENÍ: Mřížka reality nekontrolovaně kolabuje!", "error");
+                        state.lastLogTime = state.time;
+                    }
+                } else {
+                    collapseOverlay.classList.add('hidden');
+                }
+            }
+
+            gl.useProgram(program);
+
+            if (!state.isFrozen) {
+                gl.bindTexture(gl.TEXTURE_2D, texture);
+                if (state.cameraActive && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+                }
+            }
+
+            // Odeslání všech veličin na GPU
+            gl.uniform1f(uTimeLoc, state.time);
+            gl.uniform1f(uFIntensityLoc, state.fIntensity);
+            gl.uniform1f(uAberrationLoc, state.aberration);
+            gl.uniform1f(uShieldingLoc, state.shielding);
+            gl.uniform1f(uTeleportLoc, state.teleport);
+            gl.uniform1f(uConnectionsLoc, state.connections); 
+            gl.uniform1f(uPhaseShiftLoc, currentPhaseShift); 
+            gl.uniform1f(uCryoFreezeLoc, state.cryoFreeze); 
+            gl.uniform1f(uOptomechLoc, state.optomech); 
+            gl.uniform1f(uTimeCrystalLoc, state.timeCrystal); 
+            gl.uniform1f(uHeatHazeLoc, state.heatHaze); 
+
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+            requestAnimationFrame(render);
+        }
+
+        // --- Event Listeners ovládání ---
+        btnFreeze.addEventListener('click', () => {
+            state.isFrozen = true;
+            btnFreeze.disabled = true;
+            btnFreeze.className = "py-2.5 px-3 bg-slate-800 text-slate-500 border border-slate-700/50 rounded-xl text-xs font-bold transition";
+            btnRelease.disabled = false;
+            btnRelease.className = "py-2.5 px-3 bg-purple-600 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-purple-950/20";
+            freezeOverlay.classList.remove('hidden');
+            writeLog("🔒 VLNOPLOCHA ZNEHYBNĚNA: Rychlost vlnoplochy je rovna 0 km/h!", "success");
+        });
+
+        btnRelease.addEventListener('click', () => {
+            state.isFrozen = false;
+            btnFreeze.disabled = false;
+            btnFreeze.className = "py-2.5 px-3 bg-purple-600 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-purple-950/20";
+            btnRelease.disabled = true;
+            btnRelease.className = "py-2.5 px-3 bg-slate-800 text-slate-500 border border-slate-700/50 rounded-xl text-xs font-bold transition";
+            freezeOverlay.classList.add('hidden');
+            writeLog("▶️ Kvantová re-emise. Světlo opět uvolněno z mřížky.");
+        });
+
+        btnTeleport.addEventListener('click', () => {
+            state.teleport = 1.0;
+            teleportOverlay.classList.remove('hidden');
+            writeLog("✨ TELEPORTACE STAVU: Nelokální přepis mřížky přes Bellovo měření!", "teleport");
+        });
+
+        btnTriggerCamera.addEventListener('click', initCamera);
+
+        sliderConnections.addEventListener('input', (e) => {
+            state.connections = parseFloat(e.target.value) / 100.0;
+            valConnections.innerText = e.target.value + " %";
+        });
+
+        sliderPhaseShift.addEventListener('input', (e) => {
+            state.phaseShift = parseFloat(e.target.value) / 100.0;
+            valPhaseShift.innerText = e.target.value + " %";
+        });
+
+        sliderCryoFreeze.addEventListener('input', (e) => {
+            state.cryoFreeze = parseFloat(e.target.value) / 100.0;
+            valCryoFreeze.innerText = e.target.value + " %";
+            if (state.cryoFreeze > 0.85 && state.time - state.lastLogTime > 4.0) {
+                writeLog("❄️ Kryogenní podchlazení: Tepelné fonony utlumeny, uzly ztuhly do nehybných úhlů.", "cryo");
+                state.lastLogTime = state.time;
+            }
+        });
+
+        // Event listenery pro nové moduly roku 2026 a fyziku ohně
+        sliderOptomech.addEventListener('input', (e) => {
+            state.optomech = parseFloat(e.target.value) / 100.0;
+            valOptomech.innerText = e.target.value + " %";
+            if (state.optomech > 0.1 && state.time - state.lastLogTime > 4.0) {
+                writeLog("🔮 <strong>Optomechanické provázání aktivní:</strong> Levitující nanosféra ze siliky sdílí vlnový stav se světlem (Objev z října 2026)!", "optomech");
+                state.lastLogTime = state.time;
+            }
+        });
+
+        sliderTimeCrystal.addEventListener('input', (e) => {
+            state.timeCrystal = parseFloat(e.target.value) / 100.0;
+            valTimeCrystal.innerText = e.target.value + " %";
+            if (state.timeCrystal > 0.1 && state.time - state.lastLogTime > 4.0) {
+                writeLog("⏳ <strong>Fotonický časový krystal spuštěn:</strong> Index lomu periodicky osciluje přímo v čase na bázi pikosekund.", "teleport");
+                state.lastLogTime = state.time;
+            }
+        });
+
+        sliderHeatHaze.addEventListener('input', (e) => {
+            state.heatHaze = parseFloat(e.target.value) / 100.0;
+            valHeatHaze.innerText = e.target.value + " %";
+            if (state.heatHaze > 0.1 && state.time - state.lastLogTime > 4.0) {
+                writeLog("🔥 <strong>Fyzika ohně (Tepelné tetelení):</strong> Horké stoupající kapsy plynu chaoticky ohýbají paprsky.", "haze");
+                state.lastLogTime = state.time;
+            }
+        });
+
+        sliderFIntensity.addEventListener('input', (e) => {
+            state.fIntensity = parseFloat(e.target.value) / 100.0;
+            valFIntensity.innerText = e.target.value + " %";
+        });
+
+        sliderAberration.addEventListener('input', (e) => {
+            state.aberration = parseFloat(e.target.value);
+            valAberration.innerText = (state.aberration * 0.1).toFixed(1);
+        });
+
+        checkShield.addEventListener('change', (e) => {
+            state.shielding = e.target.checked ? 1.0 : 0.0;
+            if (state.shielding < 0.5) {
+                writeLog("❌ Magnetické stínění odpojeno. Zeemanův jev vyvolal dekoherenci.", "error");
+            } else {
+                writeLog("🛡️ Mu-metal aktivován. Kvantová paměť chráněna.");
+            }
+        });
+
+        checkLimiter.addEventListener('change', (e) => {
+            state.limiterActive = e.target.checked;
+            if (!state.limiterActive) {
+                writeLog("⚠️ Bezpečnostní limitátor mřížky deaktivován! Hrozí strukturální přesycení pole.", "error");
+            } else {
+                writeLog("🛡️ Bezpečnostní limitátor mřížky aktivován.");
+            }
+        });
+
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>

@@ -201,11 +201,11 @@ function drawGraph(){
     gx.stroke();gx.setLineDash([]);
     gx.fillStyle='rgba(150,170,185,0.7)';gx.fillText('2rs/b',X(xmax*S.rs*0.45),Y(2/(xmax*0.45))-6);
   }
-  plotSeries('gr','rgba(80,215,255,0.95)');
-  plotSeries('med','rgba(255,177,77,0.95)');
+  plotSeries('gr','rgba(80,215,255,0.95)',X,Y);
+  plotSeries('med','rgba(255,177,77,0.95)',X,Y);
 }
 
-function plotSeries(key,col){
+function plotSeries(key,col,X,Y){
   gx.strokeStyle=col;gx.lineWidth=1.4;gx.beginPath();
   var started=false;
   for(var i=0;i<results.length;i++){

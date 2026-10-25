@@ -7,8 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tesla 3-6-9 Vesmírný Projektor lomu Oka</title>
     <!-- Použití schváleného CDN pro Three.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <style>
+        <style>
         * {
             margin: 0;
             padding: 0;
@@ -187,7 +186,18 @@
     <div class="controls-hint">Tažením myši rotujte posvátnou geometrií</div>
     <div id="msg-box">Rezonanční pipeline aktivována bez šumu.</div>
 
-    <script>
+    <script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+
         // Inicializace globálních proměnných pro Three.js
         let scene, camera, renderer;
         let eyeResonator, skyboxCube, axisGroup, raysGroup;

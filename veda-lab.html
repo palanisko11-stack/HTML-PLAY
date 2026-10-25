@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VEDA LAB — Opticky analogon gravitace</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#04070d;color:#cfe6f2;font:13px/1.5 'Segoe UI',system-ui,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+header{padding:8px 14px;background:#060b13;border-bottom:1px solid #0d2438;letter-spacing:2px;font-size:12px;text-transform:uppercase;color:#5fd8ff}
+header b{color:#ffb14d}
+#mid{flex:1;display:flex;min-height:0}
+#main{flex:1;position:relative;min-width:0}
+canvas#scene{position:absolute;inset:0;width:100%;height:100%;display:block}
+#hud{position:absolute;top:10px;left:12px;font:11px/1.7 ui-monospace,Consolas,monospace;color:#8fb6c9;background:rgba(4,10,18,.72);border:1px solid #0d2438;border-radius:8px;padding:8px 12px;pointer-events:none;white-space:pre}
+#panel{width:330px;background:#060b13;border-left:1px solid #0d2438;padding:12px;overflow-y:auto}
+h2{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#5fd8ff;margin:10px 0 6px}
+label{display:block;font-size:11px;color:#8fb6c9;margin:8px 0 2px}
+label span{float:right;color:#e8f4fa;font-family:ui-monospace,Consolas,monospace}
+input[type=range]{width:100%;accent-color:#2fa8d8}
+button{margin:2px 3px 2px 0;padding:6px 10px;border:1px solid #16455f;border-radius:6px;background:#0a1826;color:#cfe6f2;font-size:11px;cursor:pointer}
+button:hover{background:#10283d}
+button.acc{border-color:#7a4a1a;color:#ffb14d}
+#info{margin-top:14px;font-size:11px;line-height:1.6;color:#7d9db0;border-top:1px solid #0d2438;padding-top:10px}
+#info em{color:#ffb14d;font-style:normal}
+#graphwrap{height:150px;background:#04070d;border-top:1px solid #0d2438;position:relative}
+canvas#graph{position:absolute;inset:0;width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<div id="app">
+<header>VEDA LAB &mdash; opticky analogon gravitace &middot; <b>Snell vs. Einstein</b> &middot; vse offline na strane klienta</header>
+<div id="mid">
+  <div id="main">
+    <canvas id="scene"></canvas>
+    <div id="hud"></div>
+  </div>
+  <aside id="panel">
+    <h2>Prostredi</h2>
+    <label>Schwarzschildov polomer rs <span id="o-rs"></span></label><input type="range" id="i-rs" min="12" max="70" step="1">
+    <label>Amplituda profilu A <span id="o-A"></span></label><input type="range" id="i-A" min="0" max="3" step="0.01">
+    <label>Exponent profilu p <span id="o-p"></span></label><input type="range" id="i-p" min="0.2" max="8" step="0.05">
+    <label>Jadro R <span id="o-R"></span></label><input type="range" id="i-R" min="4" max="90" step="1">
+    <h2>Paprsky</h2>
+    <label>Pocet paprsku <span id="o-rays"></span></label><input type="range" id="i-rays" min="6" max="80" step="1">
+    <label>Dosah b <span id="o-spread"></span></label><input type="range" id="i-spread" min="60" max="320" step="5">
+    <label><input type="checkbox" id="c-GR" checked> GR geodetiky (Einstein)</label>
+    <label><input type="checkbox" id="c-MED" checked> opticke paprsky (Snell)</label>
+    <label><input type="checkbox" id="c-Asym" checked> asymptota 2rs/b (slabe pole)</label>
+    <h2>Mereni</h2>
+    <button id="b-fit" class="acc">Auta-doladit A na GR (pro dane p)</button>
+    <h2>Presety</h2>
+    <button id="b-p1">Analogon BH (p=1)</button>
+    <button id="b-p2">Silne pole (p=2)</button>
+    <button id="b-lens">Lensball (p=8)</button>
+    <button id="b-weak">Slabe pole (1919)</button>
+    <div id="info">
+      <em>Co tady hledat:</em> nastav p=1, A=1, R=rs. Opticke prostredi s n(r)=1+A/( (r/R)^p ) ohynba svetlo stejne jako cerna dira ve slabem poli: alfa = 2rs/b (Einstein 1919).
+      <em>(1)</em> Sedi obe krivky v grafu odchylky? Kde se rozejdou?
+      <em>(2)</em> Zmer kriticky dopadovy parametr b_krit. GR teorie: 3*sqrt(3)/2*rs = 2.598*rs (fotonova sfera 1.5rs). Opticky analog ma b_krit jiny &mdash; najdi profil (p, A, R), kterej to zprijesni.
+      <em>(3)</em> Takhle se ve skutecne optice stavaji analogove cerne diry (analog gravity). RMS v HUD rika, jak daleko jsi od skutecne geometrie.
+    </div>
+  </aside>
+</div>
+<div id="graphwrap"><canvas id="graph"></canvas></div>
+</div>
+<script>
+var S={rs:36,A:1,p:1,R:36,rays:34,spread:230,showGR:true,showMED:true,showAsym:true};
+var X0=620, results=[], bCritGR=null, bCritMED=null, rms=null;
+var cv=document.getElementById('scene'),cx=cv.getContext('2d');
+var gc=document.getElementById('graph'),gx=gc.getContext('2d');
+var PI=Math.PI;
+
+function nProfile(r){var t=r/S.R;return 1+S.A/(Math.pow(t,S.p)+0.03);}
+function dnDr(r){var t=r/S.R;var tp=Math.pow(t,S.p);var dt=S.p*Math.pow(t,S.p-1)/S.R;return -S.A*dt/Math.pow(tp+0.03,2);}
+
+function traceGR(b,pts){
+  var x=-X0,y=b,vx=1,vy=0,h2=b*b,rs=S.rs,steps=0,captured=false,prevA=0;
+  if(pts)pts.push(x,y);
+  while(steps<20000){
+    var r2=x*x+y*y,r=Math.sqrt(r2);
+    if(r<rs*1.002){captured=true;break;}
+    var dt=Math.max(0.12,Math.min(5,r*0.045));
+    var f=-1.5*rs*h2/Math.pow(r2,2.5);
+    var ax=f*x,ay=f*y;
+    var mx=x+vx*dt*0.5,my=y+vy*dt*0.5,mvx=vx+ax*dt*0.5,mvy=vy+ay*dt*0.5;
+    var mr2=mx*mx+my*my,mf=-1.5*rs*h2/Math.pow(mr2,2.5);
+    x+=mvx*dt;y+=mvy*dt;vx+=mf*mx*dt;vy+=mf*my*dt;
+    var ca=Math.atan2(vy,vx),d=ca-prevA;
+    while(d>PI)d-=2*PI;while(d<-PI)d+=2*PI;prevA=ca;
+    steps++;
+    if(pts&&steps%2===0)pts.push(x,y);
+    if(x>X0&&vx>0)break;
+    if(Math.abs(y)>2600)break;
+  }
+  if(pts)pts.push(x,y);
+  return {captured:captured,turn:prevA,finalA:prevA,endx:x,endy:y};
+}
+
+function traceMED(b,pts){
+  var x=-X0,y=b,tx=1,ty=0,steps=0,prevA=0,center=false;
+  if(pts)pts.push(x,y);
+  while(steps<24000){
+    var r=Math.sqrt(x*x+y*y);
+    if(r<0.5){center=true;break;}
+    var g=dnDr(r),n=nProfile(r);
+    var ux=x/r,uy=y/r,gx=g*ux,gy=g*uy;
+    var ds=Math.max(0.12,Math.min(5,r*0.045));
+    var ga=Math.abs(g);
+    if(ga>1e-9)ds=Math.min(ds,0.35*n/ga);
+    var dot=gx*tx+gy*ty;
+    tx+=(gx-dot*tx)*(ds/n);ty+=(gy-dot*ty)*(ds/n);
+    var tl=Math.sqrt(tx*tx+ty*ty);tx/=tl;ty/=tl;
+    x+=tx*ds;y+=ty*ds;
+    var ca=Math.atan2(ty,tx),d=ca-prevA;
+    while(d>PI)d-=2*PI;while(d<-PI)d+=2*PI;prevA=ca;
+    steps++;
+    if(pts&&steps%2===0)pts.push(x,y);
+    if(x>X0&&tx>0)break;
+    if(Math.abs(y)>2600)break;
+  }
+  if(pts)pts.push(x,y);
+  return {captured:center||Math.abs(prevA)>2*PI,turn:prevA,finalA:prevA,endx:x,endy:y};
+}
+
+function recalc(){
+  results=[];
+  var n=S.rays;
+  for(var i=0;i<n;i++){
+    var b=-S.spread+(i+0.5)*(2*S.spread)/n;
+    results.push({b:b,gr:traceGR(b,[]),med:traceMED(b,[])});
+  }
+  bCritGR=findCrit(function(b){return traceGR(b,null).captured;},S.rs*0.3,S.rs*10);
+  bCritMED=findCrit(function(b){return traceMED(b,null).captured;},S.rs*0.3,S.rs*10);
+  var s2=0,cnt=0;
+  for(var j=0;j<results.length;j++){
+    var r=results[j];
+    if(!r.gr.captured&&!r.med.captured){var d=r.med.turn-r.gr.turn;s2+=d*d;cnt++;}
+  }
+  rms=cnt>0?Math.sqrt(s2/cnt):null;
+  draw();drawGraph();hud();
+}
+
+function findCrit(fn,lo,hi){
+  if(fn(hi))return null;
+  if(!fn(lo))return lo;
+  for(var i=0;i<26;i++){var m=(lo+hi)/2;if(fn(m))lo=m;else hi=m;}
+  return (lo+hi)/2;
+}
+
+function draw(){
+  var w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  cx.fillStyle='#04070d';cx.fillRect(0,0,w,h);
+  cx.save();cx.translate(w/2,h/2);
+  cx.globalCompositeOperation='lighter';
+  for(var i=0;i<results.length;i++){
+    var r=results[i];
+    if(S.showGR)strokePath(r.gr, 'rgba(80,215,255,0.5)','rgba(255,70,70,0.9)',r.gr.captured);
+    if(S.showMED)strokePath(r.med,'rgba(255,177,77,0.45)','rgba(255,70,70,0.9)',r.med.captured&&r.med.endx>-X0);
+  }
+  cx.globalCompositeOperation='source-over';
+  // fotonova sfera
+  cx.setLineDash([4,4]);cx.strokeStyle='rgba(80,215,255,0.35)';cx.lineWidth=1;
+  cx.beginPath();cx.arc(0,0,1.5*S.rs,0,2*PI);cx.stroke();
+  cx.setLineDash([]);
+  // horizont
+  cx.fillStyle='#000';cx.beginPath();cx.arc(0,0,S.rs,0,2*PI);cx.fill();
+  cx.strokeStyle='#4dd8ff';cx.lineWidth=1.4;cx.beginPath();cx.arc(0,0,S.rs,0,2*PI);cx.stroke();
+  // jadro prostredi
+  if(Math.abs(S.R-S.rs)>1){cx.setLineDash([2,5]);cx.strokeStyle='rgba(255,177,77,0.35)';cx.beginPath();cx.arc(0,0,S.R,0,2*PI);cx.stroke();cx.setLineDash([]);}
+  cx.restore();
+}
+
+function strokePath(res,col,capCol,capped){
+  cx.strokeStyle=col;cx.lineWidth=1;
+  cx.beginPath();
+  cx.moveTo(res.pts[0],res.pts[1]);
+  for(var k=2;k<res.pts.length;k+=2)cx.lineTo(res.pts[k],res.pts[k+1]);
+  cx.stroke();
+  if(capped){cx.fillStyle=capCol;cx.beginPath();cx.arc(res.endx,res.endy,2.2,0,2*PI);cx.fill();}
+}
+
+function drawGraph(){
+  var w=gc.width/devicePixelRatio,h=gc.height/devicePixelRatio;
+  gx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  gx.fillStyle='#04070d';gx.fillRect(0,0,w,h);
+  var pad=34,xmax=Math.max(6,S.spread/S.rs+1),ymax=PI;
+  function X(b){return pad+(b/S.rs)*(w-pad-10)/xmax;}
+  function Y(a){return h-16-(Math.min(Math.abs(a),ymax)/ymax)*(h-30);}
+  gx.strokeStyle='#123049';gx.beginPath();gx.moveTo(pad,8);gx.lineTo(pad,h-16);gx.lineTo(w-10,h-16);gx.stroke();
+  gx.fillStyle='#57788c';gx.font='10px ui-monospace,Consolas,monospace';
+  gx.fillText('b/rs',w-46,h-4);
+  gx.save();gx.translate(10,44);gx.rotate(-PI/2);gx.fillText('odchylka [rad]',0,0);gx.restore();
+  for(var g=1;g<=Math.floor(xmax);g++){gx.fillText(''+g,X(g*S.rs)-3,h-4);}
+  gx.fillText('pi',pad-18,Y(PI)+3);
+  if(S.showAsym){
+    gx.setLineDash([3,4]);gx.strokeStyle='rgba(150,170,185,0.5)';gx.beginPath();
+    for(var bb=0.4;bb<=xmax;bb+=0.02){var yy=2/bb;if(yy<=ymax){var px=X(bb*S.rs);if(bb===0.4)gx.moveTo(px,Y(yy));else gx.lineTo(px,Y(yy));}}
+    gx.stroke();gx.setLineDash([]);
+    gx.fillStyle='rgba(150,170,185,0.7)';gx.fillText('2rs/b',X(xmax*S.rs*0.45),Y(2/(xmax*0.45))-6);
+  }
+  plotSeries('gr','rgba(80,215,255,0.95)');
+  plotSeries('med','rgba(255,177,77,0.95)');
+}
+
+function plotSeries(key,col){
+  gx.strokeStyle=col;gx.lineWidth=1.4;gx.beginPath();
+  var started=false;
+  for(var i=0;i<results.length;i++){
+    var r=results[i];
+    if(r[key].captured)continue;
+    var b=r.b;if(b<=0)continue;
+    var a=Math.abs(r[key].turn);
+    var px=X(b),py=Y(a);
+    if(!started){gx.moveTo(px,py);started=true;}else gx.lineTo(px,py);
+  }
+  gx.stroke();
+}
+
+function hud(){
+  var el=document.getElementById('hud');
+  var t='';
+  t+='rs='+S.rs+'  A='+S.A.toFixed(2)+'  p='+S.p.toFixed(2)+'  R='+S.R+'\n';
+  t+='b_krit GR   = '+(bCritGR?bCritGR.toFixed(1)+' px ('+(bCritGR/S.rs).toFixed(3)+' rs)':'--')+'\n';
+  t+='b_krit MED  = '+(bCritMED?bCritMED.toFixed(1)+' px ('+(bCritMED/S.rs).toFixed(3)+' rs)':'--')+'\n';
+  t+='teorie GR   = 2.598 rs (3*sqrt(3)/2)\n';
+  t+='RMS alpha   = '+(rms!==null?rms.toFixed(4)+' rad':'--');
+  el.textContent=t;
+}
+
+function fitA(){
+  var ks=[1.5,2,3,4,6,8],bs=ks.map(function(k){return k*S.rs;});
+  var grA=[];
+  for(var i=0;i<bs.length;i++){var t=traceGR(bs[i],null);grA.push(t.captured?null:Math.abs(t.turn));}
+  var oldA=S.A,base=S.rs/S.R;
+  function score(A){
+    S.A=A;var s=0,c=0;
+    for(var i=0;i<bs.length;i++){
+      if(grA[i]===null)continue;
+      var m=traceMED(bs[i],null);
+      if(m.captured)continue;
+      var d=Math.abs(m.turn)-grA[i];s+=d*d;c++;
+    }
+    return c>0?s/c:1e9;
+  }
+  var best=oldA,bs2=1e18;
+  for(var m=0;m<=28;m++){var cand=base*Math.pow(10,-1+2*m/28);var sc=score(cand);if(sc<bs2){bs2=sc;best=cand;}}
+  for(var m2=-8;m2<=8;m2++){var cand2=best*Math.pow(1.05,m2);var sc2=score(cand2);if(sc2<bs2){bs2=sc2;best=cand2;}}
+  S.A=best;
+  var sl=document.getElementById('i-A');sl.value=String(best);
+  syncLabels();recalc();
+}
+
+function syncLabels(){
+  document.getElementById('o-rs').textContent=S.rs;
+  document.getElementById('o-A').textContent=S.A.toFixed(2);
+  document.getElementById('o-p').textContent=S.p.toFixed(2);
+  document.getElementById('o-R').textContent=S.R;
+  document.getElementById('o-rays').textContent=S.rays;
+  document.getElementById('o-spread').textContent=S.spread;
+  document.getElementById('i-rs').value=String(S.rs);
+  document.getElementById('i-A').value=String(S.A);
+  document.getElementById('i-p').value=String(S.p);
+  document.getElementById('i-R').value=String(S.R);
+  document.getElementById('i-rays').value=String(S.rays);
+  document.getElementById('i-spread').value=String(S.spread);
+  document.getElementById('c-GR').checked=S.showGR;
+  document.getElementById('c-MED').checked=S.showMED;
+  document.getElementById('c-Asym').checked=S.showAsym;
+}
+
+function bind(id,fn){document.getElementById(id).addEventListener('input',function(e){fn(e.target);syncLabels();recalc();});}
+bind('i-rs',function(t){S.rs=+t.value;});
+bind('i-A',function(t){S.A=+t.value;});
+bind('i-p',function(t){S.p=+t.value;});
+bind('i-R',function(t){S.R=+t.value;});
+bind('i-rays',function(t){S.rays=+t.value;});
+bind('i-spread',function(t){S.spread=+t.value;});
+bind('c-GR',function(t){S.showGR=t.checked;});
+bind('c-MED',function(t){S.showMED=t.checked;});
+bind('c-Asym',function(t){S.showAsym=t.checked;});
+document.getElementById('b-fit').addEventListener('click',fitA);
+function preset(rs,A,p,R,spread){S.rs=rs;S.A=A;S.p=p;S.R=R;S.spread=spread;syncLabels();recalc();}
+document.getElementById('b-p1').addEventListener('click',function(){preset(36,1,1,36,230);});
+document.getElementById('b-p2').addEventListener('click',function(){preset(48,2,2,24,240);});
+document.getElementById('b-lens').addEventListener('click',function(){preset(20,0.45,8,90,260);});
+document.getElementById('b-weak').addEventListener('click',function(){preset(12,1,1,12,300);});
+
+function resize(){
+  var d=devicePixelRatio||1;
+  var m=document.getElementById('main'),g=document.getElementById('graphwrap');
+  cv.width=m.clientWidth*d;cv.height=m.clientHeight*d;
+  gc.width=g.clientWidth*d;gc.height=g.clientHeight*d;
+  X0=Math.max(cv.width/d/2+80,620);
+  recalc();
+}
+window.addEventListener('resize',resize);
+syncLabels();resize();
+</script>
+</body>
+</html>

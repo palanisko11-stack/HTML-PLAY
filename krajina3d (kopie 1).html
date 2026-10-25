@@ -37,8 +37,18 @@ canvas{display:block}
 <button class="btn" onclick="regen()">New Scan</button>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+
 // ===================== NOISE =====================
 class Noise {
     constructor(seed) {
@@ -256,8 +266,8 @@ function init() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.35;
-    renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.physicallyCorrectLights = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.useLegacyLights = false;
     document.body.appendChild(renderer.domElement);
 
     cur = cp('golden');
@@ -1276,6 +1286,9 @@ function animate() {
 }
 
 init();
+
+window.regen = regen;
+window.setPreset = setPreset;
 </script>
 </body>
 </html>

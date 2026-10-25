@@ -274,7 +274,7 @@ function init3D() {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     container.appendChild(renderer.domElement);
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.04;
     controls.maxDistance = 80;
@@ -422,13 +422,13 @@ function buildParticles() {
 }
 
 function setupPostProcessing() {
-    composer = new THREE.EffectComposer(renderer);
-    composer.addPass(new THREE.RenderPass(scene, camera));
-    bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.1);
+    composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.2, 0.4, 0.1);
     composer.addPass(bloomPass);
-    lensDistortionPass = new THREE.ShaderPass(GravitationalLensingShader);
+    lensDistortionPass = new ShaderPass(GravitationalLensingShader);
     composer.addPass(lensDistortionPass);
-    const grainPass = new THREE.ShaderPass(GrainVignettePass);
+    const grainPass = new ShaderPass(GrainVignettePass);
     grainPass.renderToScreen = true;
     composer.addPass(grainPass);
 }

@@ -269,6 +269,19 @@ summary { cursor:pointer; color:var(--muted); font-size:12px; }
 .modal-actions { display:flex; justify-content:flex-end; gap:8px; }
 #micBtn.active { color:var(--err); border-color:var(--err); animation:pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity:.5; } }
+.tool-chip { align-self:center; font-size:12px; color:var(--muted); background:var(--panel2); border:1px solid var(--border); border-radius:20px; padding:4px 12px; margin:4px 0; max-width:80%; }
+.eye-preview { background:var(--bg); border:1px solid var(--border); border-radius:8px; overflow:hidden; min-height:180px; display:flex; align-items:center; justify-content:center; }
+.eye-preview video, .eye-preview img { max-width:100%; max-height:260px; display:block; }
+.eye-status { font-size:12px; color:var(--muted); }
+.eye-caption { font-size:13px; color:var(--txt); background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px; display:none; }
+.memory-list { display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto; }
+.memory-item { display:flex; align-items:center; gap:8px; font-size:13px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
+.memory-item span { flex:1; }
+.memory-item button { background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:14px; }
+.memory-item button:hover { color:var(--err); }
+.memory-add { display:flex; gap:8px; margin-top:10px; }
+.memory-add input { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--txt); padding:8px; font:inherit; }
+.memory-empty { font-size:12px; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -300,6 +313,9 @@ summary { cursor:pointer; color:var(--muted); font-size:12px; }
     <div class="panel-header">
       <span class="panel-title">Chat</span>
       <span style="flex:1"></span>
+      <button class="btn btn-icon" id="eyeBtn" title="Virtuální oči – kamera nebo obrázek">👁</button>
+      <button class="btn btn-icon" id="attachBtn" title="Přiložit soubor (obrázek/text)">📎</button>
+      <input type="file" id="attachFile" accept="image/*,text/*,.md,.csv,.json,.js,.py" style="display:none">
       <button class="btn btn-icon" id="micBtn" title="Diktovat hlasem (cs-CZ)">🎤</button>
       <button class="btn btn-icon" id="chatExportBtn" title="Exportovat chat jako Markdown">⬇</button>
       <button class="btn btn-icon" id="settingsBtn" title="Nastavení (prompt, teplota, hlas)">⚙</button>
@@ -406,6 +422,16 @@ summary { cursor:pointer; color:var(--muted); font-size:12px; }
           <div class="result" id="styleResult"><div class="empty">Vyžaduje pripravený mozek (výše).</div></div>
         </div>
 
+        <div class="sem-card">
+          <h3>🗄 Dlouhodobá paměť</h3>
+          <p class="sub">Poznámky, které si AI zapamatuje mezi konverzacemi. Model je umí ukládat a vyhledávat sám (nástroje remember/recall) – hledání používá sémantické embeddingy, když je mozek připravený.</p>
+          <div class="memory-list" id="memoryList"></div>
+          <div class="memory-add">
+            <input type="text" id="memoryInput" placeholder="Nová poznámka do paměti…">
+            <button class="btn btn-secondary" id="memoryAdd">💾 Uložit</button>
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
@@ -426,6 +452,25 @@ summary { cursor:pointer; color:var(--muted); font-size:12px; }
       <button class="btn btn-secondary" id="settingsReset">Obnovit výchozí</button>
       <button class="btn" id="settingsClose">Zavřít</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="eyeOverlay" style="display:none">
+  <div class="modal">
+    <h3>👁 Virtuální oči</h3>
+    <div class="eye-preview">
+      <video id="eyeVideo" autoplay playsinline muted style="display:none"></video>
+      <img id="eyeShot" alt="snímek" style="display:none">
+      <span class="memory-empty" id="eyePlaceholder">Kamera není zapnutá.</span>
+    </div>
+    <div class="eye-status" id="eyeStatus">Kamera zůstává lokální – obraz se nikam neposílá, popisuje ho model přímo v prohlížeči.</div>
+    <div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn btn-secondary" id="eyeStart">📷 Zapnout kameru</button>
+      <button class="btn" id="eyeCapture" disabled>👁 Vyfotit a popsat</button>
+      <label class="btn btn-secondary" style="cursor:pointer">🖼 Obrázek ze souboru<input type="file" id="eyeFile" accept="image/*" style="display:none"></label>
+    </div>
+    <div class="eye-caption" id="eyeCaption"></div>
+    <div class="modal-actions"><button class="btn" id="eyeClose">Zavřít</button></div>
   </div>
 </div>
 
@@ -695,7 +740,11 @@ Pravidla:
 - V mermaid používej české popisky uzlů bez speciálních znaků (,;[]), které by rozbily syntaxi - použij uzel jako A[Start] atd.
 - V SVG vždy uveď xmlns="http://www.w3.org/2000/svg" a viewBox.
 - Pro běžné otázky odpovídej normálně, bez kódových bloků.
-- Buď velmi stručný - max 2 věty mimo kódový blok.`;
+- Buď velmi stručný - max 2 věty mimo kódový blok.
+
+Máš i nástroje pro přesný výpočet (calc) a aktuální čas (now). Když je potřebuješ, napiš na poslední řádek:
+TOOL: {"name":"calc","args":{"expr":"2+2"}}
+Po TOOL řádku nic nepiš.`;
 
 const CPU_SYSTEM_PROMPT = `Odpovídej v češtině, maximálně 2 věty. Když uživatel chce diagram, napiš jen kódový blok:
 \`\`\`mermaid
@@ -1254,6 +1303,291 @@ inputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
+// ---------- Virtuální ruce: nástroje agenta ----------
+const MEMORY_KEY = 'ceska_ai_memory_v1';
+function loadMemory() { try { return JSON.parse(localStorage.getItem(MEMORY_KEY)) || []; } catch (e) { return []; } }
+function saveMemory(notes) { try { localStorage.setItem(MEMORY_KEY, JSON.stringify(notes)); } catch (e) {} }
+
+function runJsSandbox(code, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let worker;
+    let url;
+    try {
+      const src = [
+        'self.onmessage = (e) => {',
+        '  const logs = [];',
+        '  const fmt = (x) => { try { return (typeof x === "object" && x !== null) ? JSON.stringify(x) : String(x); } catch (_) { return String(x); } };',
+        '  const con = { log: (...a) => logs.push(a.map(fmt).join(" ")), error: (...a) => logs.push("CHYBA: " + a.map(fmt).join(" ")), warn: (...a) => logs.push(a.map(fmt).join(" ")) };',
+        '  let result;',
+        '  try { result = new Function("console", e.data)(con); }',
+        '  catch (err) { self.postMessage({ error: String(err), logs }); return; }',
+        '  let out;',
+        '  try { out = (typeof result === "object" && result !== null) ? JSON.stringify(result) : String(result); } catch (_) { out = String(result); }',
+        '  self.postMessage({ result: out, logs });',
+        '};'
+      ].join('\n');
+      url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+      worker = new Worker(url);
+    } catch (e) { resolve('Chyba: nepodařilo se spustit sandbox (' + (e.message || e) + ').'); return; }
+    const timer = setTimeout(() => { worker.terminate(); URL.revokeObjectURL(url); resolve('Chyba: vypršel časový limit 5 s.'); }, timeoutMs);
+    worker.onmessage = (e) => {
+      clearTimeout(timer); worker.terminate(); URL.revokeObjectURL(url);
+      let out = (e.data.logs && e.data.logs.length) ? e.data.logs.join('\n') + '\n' : '';
+      out += e.data.error ? ('Chyba: ' + e.data.error) : ('Výsledek: ' + e.data.result);
+      resolve(out);
+    };
+    worker.onerror = (e) => { clearTimeout(timer); worker.terminate(); URL.revokeObjectURL(url); resolve('Chyba: ' + (e.message || 'neznámá')); };
+    worker.postMessage(code);
+  });
+}
+
+const TOOLS = {
+  async calc(args) {
+    const expr = String(args.expr || '').trim();
+    if (!expr) return 'Chybí výraz.';
+    if (!/^[-+*/().,%\s0-9eE^]+$/.test(expr)) return 'Neplatný výraz: ' + expr;
+    const js = expr.replace(/(\d),(\d)/g, '$1.$2').replace(/\^/g, '**');
+    const val = Function('"use strict"; return (' + js + ')')();
+    return expr + ' = ' + val;
+  },
+  async run_js(args) { return await runJsSandbox(String(args.code || '')); },
+  async draw(args) {
+    const fmt = ['mermaid', 'svg', 'ascii'].includes(String(args.format || '').toLowerCase()) ? String(args.format).toLowerCase() : 'mermaid';
+    const code = String(args.code || '');
+    if (!code.trim()) return 'Chybí kód diagramu.';
+    switchTab('canvas');
+    await processCanvasResponse('```' + fmt + '\n' + code + '\n```');
+    return 'Diagram (' + fmt + ') je vykreslený na plátně vpravo.';
+  },
+  async now() {
+    return new Date().toLocaleString('cs-CZ', { dateStyle: 'full', timeStyle: 'medium' });
+  },
+  async remember(args) {
+    const txt = String(args.text || '').trim();
+    if (!txt) return 'Chybí text poznámky.';
+    const notes = loadMemory();
+    notes.push({ text: txt, ts: Date.now() });
+    saveMemory(notes);
+    renderMemoryList();
+    return 'Zapamatováno (celkem ' + notes.length + ' poznámek): ' + txt;
+  },
+  async recall(args) {
+    const q = String(args.query || '').trim();
+    const notes = loadMemory();
+    if (!notes.length) return 'Paměť je zatím prázdná.';
+    if (!q) return notes.map(n => '- ' + n.text).join('\n');
+    if (brainReady && typeof extractor !== 'undefined' && extractor) {
+      const qe = await embedOne(q);
+      const scored = [];
+      for (const n of notes) {
+        const ne = await embedOne(n.text);
+        scored.push({ n, s: cosSim(qe, ne) });
+      }
+      scored.sort((a, b) => b.s - a.s);
+      return 'Nejpodobnější poznámky:\n' + scored.slice(0, 5).map(x => '- ' + x.n.text + ' (podobnost ' + x.s.toFixed(2) + ')').join('\n');
+    }
+    const ql = q.toLowerCase();
+    const hits = notes.filter(n => n.text.toLowerCase().includes(ql));
+    return hits.length ? hits.map(n => '- ' + n.text).join('\n') : 'Přesná shoda nenalezena. Všechny poznámky:\n' + notes.map(n => '- ' + n.text).join('\n');
+  },
+  async look() {
+    if (eyeStream && eyeVideo && eyeVideo.videoWidth) {
+      const cap = await captionFromVideo();
+      return 'Vidím: ' + cap;
+    }
+    if (lastVision) return 'Naposledy viděno: ' + lastVision;
+    return 'Kamera není zapnutá. Požádej uživatele, aby klikl na tlačítko 👁 v záhlaví chatu a zapl kameru.';
+  }
+};
+
+const TOOL_LABELS = { calc: '🧮 kalkulačka', run_js: '🖐 spouštím JavaScript', draw: '🎨 kreslím na plátno', now: '🕐 hodiny', remember: '💾 ukládám do paměti', recall: '🔎 prohledávám paměť', look: '👁 dívám se' };
+function parseToolCall(text) {
+  const m = text.match(/TOOL:\s*(\{[\s\S]*\})\s*$/);
+  if (!m) return null;
+  try {
+    const obj = JSON.parse(m[1]);
+    if (obj && typeof obj.name === 'string' && TOOLS[obj.name]) {
+      return { name: obj.name, args: obj.args || {}, raw: m[0] };
+    }
+  } catch (e) {}
+  return null;
+}
+async function executeTool(name, args) {
+  const chip = document.createElement('div');
+  chip.className = 'tool-chip';
+  chip.textContent = (TOOL_LABELS[name] || '🛠 ' + name) + '…';
+  messagesEl.appendChild(chip);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  let result = '';
+  try { result = await TOOLS[name](args || {}); }
+  catch (e) { result = 'Chyba nástroje: ' + (e.message || e); }
+  chip.textContent = (TOOL_LABELS[name] || '🛠 ' + name) + ' ✓';
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return String(result);
+}
+
+// ---------- Virtuální oči: kamera + obrázky ----------
+let visionPipe = null;
+let eyeStream = null;
+let lastVision = '';
+let pendingContext = '';
+const eyeOverlay = $('eyeOverlay');
+const eyeVideo = $('eyeVideo');
+const eyeShot = $('eyeShot');
+const eyePlaceholder = $('eyePlaceholder');
+const eyeStatus = $('eyeStatus');
+const eyeCaptionEl = $('eyeCaption');
+const eyeBtn = $('eyeBtn');
+const eyeStart = $('eyeStart');
+const eyeCapture = $('eyeCapture');
+const eyeClose = $('eyeClose');
+const eyeFile = $('eyeFile');
+const attachBtn = $('attachBtn');
+const attachFile = $('attachFile');
+
+async function getVisionPipe() {
+  if (visionPipe) return visionPipe;
+  const lib = await getTransformers();
+  visionPipe = await lib.pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning', {
+    progress_callback: (p) => {
+      if (p && p.status === 'progress' && p.progress !== undefined) {
+        eyeStatus.textContent = 'Stahuji oči (popisovač obrázků, ~1× )… ' + Math.round(p.progress) + ' %';
+      }
+    }
+  });
+  return visionPipe;
+}
+async function captionFromDataUrl(dataUrl) {
+  eyeStatus.textContent = 'Analyzuji obraz…';
+  const pipe = await getVisionPipe();
+  const out = await pipe(dataUrl, { max_new_tokens: 40 });
+  let cap = (out && out[0] && out[0].generated_text) || '';
+  if (Array.isArray(cap)) cap = cap.join(' ');
+  cap = String(cap).trim();
+  eyeStatus.textContent = 'Hotovo – popis je připravený.';
+  return cap;
+}
+async function captionFromVideo() {
+  const c = document.createElement('canvas');
+  c.width = eyeVideo.videoWidth;
+  c.height = eyeVideo.videoHeight;
+  c.getContext('2d').drawImage(eyeVideo, 0, 0);
+  return await captionFromDataUrl(c.toDataURL('image/jpeg', 0.85));
+}
+function addVisionChip(label, detail) {
+  const chip = document.createElement('div');
+  chip.className = 'intent-chip';
+  chip.innerHTML = '<b>' + escapeHtml(label) + '</b> ' + escapeHtml(detail || '');
+  messagesEl.appendChild(chip);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+async function handleImageSource(dataUrl, sourceLabel) {
+  try {
+    eyeShot.src = dataUrl;
+    eyeShot.style.display = 'block';
+    eyePlaceholder.style.display = 'none';
+    const cap = await captionFromDataUrl(dataUrl);
+    lastVision = cap;
+    pendingContext = 'Popis obrazu (' + sourceLabel + ', anglicky): ' + cap;
+    eyeCaptionEl.style.display = 'block';
+    eyeCaptionEl.textContent = '👁 ' + cap;
+    addVisionChip('👁 AI vidí (' + sourceLabel + '):', cap);
+  } catch (e) {
+    eyeStatus.textContent = 'Chyba: ' + (e.message || e);
+  }
+}
+eyeBtn.addEventListener('click', () => { eyeOverlay.style.display = 'flex'; });
+eyeClose.addEventListener('click', () => {
+  eyeOverlay.style.display = 'none';
+  if (eyeStream) { eyeStream.getTracks().forEach(t => t.stop()); eyeStream = null; }
+  eyeVideo.style.display = 'none';
+});
+eyeOverlay.addEventListener('click', (e) => { if (e.target === eyeOverlay) eyeClose.click(); });
+eyeStart.addEventListener('click', async () => {
+  try {
+    eyeStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    eyeVideo.srcObject = eyeStream;
+    eyeVideo.style.display = 'block';
+    eyeShot.style.display = 'none';
+    eyePlaceholder.style.display = 'none';
+    eyeStatus.textContent = 'Kamera běží. Vyfoť snímek a nech AI ho popsat.';
+    eyeCapture.disabled = false;
+  } catch (e) {
+    eyeStatus.textContent = 'Kameru se nepodařilo zapnout: ' + (e.message || e);
+  }
+});
+eyeCapture.addEventListener('click', async () => {
+  if (!eyeStream) return;
+  eyeCapture.disabled = true;
+  await handleImageSource(await (async () => {
+    const c = document.createElement('canvas');
+    c.width = eyeVideo.videoWidth; c.height = eyeVideo.videoHeight;
+    c.getContext('2d').drawImage(eyeVideo, 0, 0);
+    return c.toDataURL('image/jpeg', 0.85);
+  })(), 'kamera');
+  eyeCapture.disabled = false;
+});
+eyeFile.addEventListener('change', async () => {
+  const f = eyeFile.files && eyeFile.files[0];
+  if (!f) return;
+  const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+  await handleImageSource(dataUrl, 'soubor ' + f.name);
+  eyeFile.value = '';
+});
+attachBtn.addEventListener('click', () => attachFile.click());
+attachFile.addEventListener('change', async () => {
+  const f = attachFile.files && attachFile.files[0];
+  if (!f) return;
+  if (f.type.startsWith('image/')) {
+    const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+    eyeOverlay.style.display = 'flex';
+    await handleImageSource(dataUrl, 'soubor ' + f.name);
+  } else {
+    const txt = await f.text();
+    const cut = txt.length > 4000 ? txt.slice(0, 4000) + '\n… (zkráceno)' : txt;
+    pendingContext = 'Uživatel přiložil soubor ' + f.name + ':\n' + cut;
+    addVisionChip('📎 Přiloženo: ' + f.name, '');
+  }
+  attachFile.value = '';
+});
+
+// ---------- Paměť: UI ----------
+const memoryList = $('memoryList');
+const memoryInput = $('memoryInput');
+const memoryAdd = $('memoryAdd');
+function renderMemoryList() {
+  const notes = loadMemory();
+  memoryList.innerHTML = '';
+  if (!notes.length) {
+    memoryList.innerHTML = '<div class="memory-empty">Zatím žádné poznámky. Napiš něco, nebo řekni AI „zapamatuj si, že…“.</div>';
+    return;
+  }
+  notes.forEach((n, i) => {
+    const item = document.createElement('div');
+    item.className = 'memory-item';
+    const span = document.createElement('span');
+    span.textContent = n.text;
+    const del = document.createElement('button');
+    del.textContent = '✕';
+    del.title = 'Smazat poznámku';
+    del.onclick = () => { const ns = loadMemory(); ns.splice(i, 1); saveMemory(ns); renderMemoryList(); };
+    item.appendChild(span);
+    item.appendChild(del);
+    memoryList.appendChild(item);
+  });
+}
+memoryAdd.addEventListener('click', () => {
+  const txt = memoryInput.value.trim();
+  if (!txt) return;
+  const notes = loadMemory();
+  notes.push({ text: txt, ts: Date.now() });
+  saveMemory(notes);
+  memoryInput.value = '';
+  renderMemoryList();
+});
+memoryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') memoryAdd.click(); });
+renderMemoryList();
+
 let lastUserText = '';
 let lastAssistantEl = null;
 
@@ -1300,6 +1634,11 @@ async function sendMessage(overrideText) {
     }
   } catch (e) {}
 
+  if (pendingContext) {
+    intentNote += '\n\n(Kontext z virtuálních očí/přílohy — využij ho v odpovědi: ' + pendingContext + ')';
+    pendingContext = '';
+  }
+
   const sys = (activeBackend === 'cpu' ? CPU_SYSTEM_PROMPT : (settings.systemPrompt || SYSTEM_PROMPT)) + intentNote;
   const apiMessages = [
     { role: 'system', content: sys },
@@ -1318,34 +1657,36 @@ async function sendMessage(overrideText) {
   let fullResponse = '';
   let lastPaint = 0;
 
-  try {
-    const paint = () => {
-      const now = performance.now();
-      if (now - lastPaint > 60) {
-        lastPaint = now;
-        renderMessage(assistantEl, fullResponse, true);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      }
-    };
+  const paint = () => {
+    const now = performance.now();
+    if (now - lastPaint > 60) {
+      lastPaint = now;
+      renderMessage(assistantEl, fullResponse, true);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  };
 
+  async function generateTurn(msgs) {
+    let turn = '';
+    const base = fullResponse;
     if (activeBackend === 'gpu') {
       const stream = await engine.chat.completions.create({
-        messages: apiMessages,
+        messages: msgs,
         stream: true,
         temperature: settings.temperature,
         max_tokens: 2048
       });
       for await (const chunk of stream) {
         const delta = chunk.choices?.[0]?.delta?.content || '';
-        if (delta) { fullResponse += delta; paint(); }
+        if (delta) { turn += delta; fullResponse = base + turn; paint(); }
         if (!isGenerating) break;
       }
     } else {
-      const inputs = await cpuSession.tokenizer.apply_chat_template(apiMessages, { add_generation_prompt: true, return_dict: true });
+      const inputs = await cpuSession.tokenizer.apply_chat_template(msgs, { add_generation_prompt: true, return_dict: true });
       const streamer = new xfLib.TextStreamer(cpuSession.tokenizer, {
         skip_prompt: true,
         skip_special_tokens: true,
-        callback_function: (txt) => { fullResponse += txt; paint(); }
+        callback_function: (txt) => { turn += txt; fullResponse = base + turn; paint(); }
       });
       await cpuSession.model.generate({
         ...inputs,
@@ -1357,6 +1698,21 @@ async function sendMessage(overrideText) {
         streamer,
         stopping_criteria: cpuSession.stopper
       });
+    }
+    return turn;
+  }
+
+  try {
+    let nextMessages = apiMessages;
+    for (let step = 0; step < 5; step++) {
+      const turnText = await generateTurn(nextMessages);
+      if (!turnText.trim()) break;
+      const call = parseToolCall(turnText);
+      if (!call) break;
+      fullResponse = fullResponse.replace(call.raw, '').trimEnd();
+      renderMessage(assistantEl, fullResponse, true);
+      const result = await executeTool(call.name, call.args);
+      nextMessages = [...apiMessages, { role: 'assistant', content: turnText }, { role: 'user', content: '[VÝSLEDEK NÁSTROJE ' + call.name + ']:\n' + result + '\n\nPokračuj a odpověz uživateli česky. Pokud potřebuješ další nástroj, použij znovu TOOL řádek.' }];
     }
 
     if (fullResponse.trim()) {
